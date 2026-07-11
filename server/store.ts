@@ -101,7 +101,7 @@ export function attachRunExecutionSummary(store: StoreShape, runId: string, summ
   if (summary.schemaVersion !== 1 || !summary.cellId.trim() || !Number.isFinite(Date.parse(summary.updatedAt))) {
     throw new Error("Execution summary identity or timestamp is invalid.");
   }
-  if (run.execution && run.execution.cellId !== summary.cellId) {
+  if (run.execution && run.execution.cellId !== summary.cellId && run.execution.state !== "destroyed") {
     throw new Error(`Run ${runId} is already bound to execution cell ${run.execution.cellId}.`);
   }
   if (run.execution && Date.parse(summary.updatedAt) < Date.parse(run.execution.updatedAt)) {

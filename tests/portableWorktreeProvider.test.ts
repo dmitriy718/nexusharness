@@ -217,6 +217,9 @@ describe("portable transactional worktree provider", () => {
     await provider.transition("cell-1", "executing");
 
     const restarted = fixture.provider();
+    await expect(restarted.recoverCell("cell-1", "different-objective")).rejects.toThrow("different objective");
+    const recoveredCell = await restarted.recoverCell("cell-1");
+    expect(recoveredCell.state).toBe("failed");
     const recovered = await restarted.recover();
     expect(recovered.find((cell) => cell.id === "cell-1")?.state).toBe("failed");
     await restarted.destroy("cell-1");

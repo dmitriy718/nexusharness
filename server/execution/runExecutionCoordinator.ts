@@ -26,6 +26,7 @@ const execFileAsync = promisify(execFile);
 
 export interface RunExecutionCoordinatorOptions {
   runId: string;
+  cellIdentity?: string;
   settings: Settings;
   dataRoot: string;
   brokerAudit: BrokerAuditSink;
@@ -69,9 +70,12 @@ export class RunExecutionCoordinator {
     if (this.validationCommands.size !== configured.length) throw new Error("Transactional validation commands must be unique.");
     const additional = (options.additionalValidationCommands ?? []).map((command) => command.trim()).filter(Boolean);
     const allowedValidations = [...new Set([...configured, ...additional])];
-    const identity = createHash("sha256").update(runId).digest("hex").slice(0, 32);
-    this.cellId = `run-${identity}`;
-    this.objectiveId = `objective-${identity}`;
+    const cellIdentity = options.cellIdentity?.trim() || runId;
+    if (cellIdentity.length > 4000) throw new Error("Run execution cell identity exceeds the 4,000 character limit.");
+    const runIdentity = createHash("sha256").update(runId).digest("hex").slice(0, 32);
+    const attemptIdentity = createHash("sha256").update(cellIdentity).digest("hex").slice(0, 32);
+    this.cellId = `run-${attemptIdentity}`;
+    this.objectiveId = `objective-${runIdentity}`;
     this.now = options.now ?? (() => new Date());
     this.id = options.id ?? randomUUID;
     const leases = new InMemoryLeaseUseStore();
@@ -148,6 +152,14 @@ export class RunExecutionCoordinator {
       }
       throw error;
     }
+  }
+
+  async recoverAndDiscard(cellId: string) {
+    if (this.prepared || this.destroyed) throw new Error("Interrupted-cell recovery requires a fresh coordinator before preparation.");
+    const recovered = await this.provider.recoverCell(cellId, this.objectiveId);
+    if (recovered.provider !== "portable-worktree") throw new Error(`Cannot recover ${recovered.provider} through the portable run coordinator.`);
+    await this.provider.destroy(cellId);
+    return recovered;
   }
 
   async list(relativePath = ".") {
