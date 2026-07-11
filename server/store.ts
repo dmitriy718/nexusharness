@@ -1,7 +1,7 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { nanoid } from "nanoid";
-import type { AuditEvent, StoreShape } from "./types.js";
+import type { AuditEvent, RunExecutionSummary, StoreShape, TaskRun } from "./types.js";
 
 const dataDir = process.env.NEXUSHARNESS_DATA_DIR
   ? path.resolve(process.env.NEXUSHARNESS_DATA_DIR)
@@ -93,6 +93,31 @@ export async function saveStore(store = cache): Promise<void> {
   });
   writeQueue = operation;
   await operation;
+}
+
+export function attachRunExecutionSummary(store: StoreShape, runId: string, summary: RunExecutionSummary, now = new Date()): TaskRun {
+  const run = store.runs.find((item) => item.id === runId);
+  if (!run) throw new Error(`Cannot attach execution summary to unknown run: ${runId}.`);
+  if (summary.schemaVersion !== 1 || !summary.cellId.trim() || !Number.isFinite(Date.parse(summary.updatedAt))) {
+    throw new Error("Execution summary identity or timestamp is invalid.");
+  }
+  if (run.execution && run.execution.cellId !== summary.cellId) {
+    throw new Error(`Run ${runId} is already bound to execution cell ${run.execution.cellId}.`);
+  }
+  if (run.execution && Date.parse(summary.updatedAt) < Date.parse(run.execution.updatedAt)) {
+    throw new Error(`Execution summary for run ${runId} is older than the persisted cell state.`);
+  }
+  run.execution = structuredClone(summary);
+  const updatedAt = now.toISOString();
+  if (Date.parse(updatedAt) > Date.parse(run.updatedAt)) run.updatedAt = updatedAt;
+  return run;
+}
+
+export async function persistRunExecutionSummary(runId: string, summary: RunExecutionSummary): Promise<TaskRun> {
+  const store = await loadStore();
+  const run = attachRunExecutionSummary(store, runId, summary);
+  await saveStore(store);
+  return structuredClone(run);
 }
 
 export async function audit(event: Omit<AuditEvent, "id" | "at">): Promise<AuditEvent> {

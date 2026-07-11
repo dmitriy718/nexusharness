@@ -12,6 +12,7 @@ All notable NexusHarness changes are documented here. The format follows Keep a 
 - Added an optional run-detail execution inspector for truthful provider boundaries, cell lifecycle, capability leases, resource budgets, observed effects, variance, verification evidence, and backend-guarded commit/rollback availability.
 - Kept full execution-cell effects, variance, evidence, and capability detail in the dedicated run-detail response while compact polling and paged history return bounded run summaries.
 - Added a provider-neutral transaction service that serializes cell operations, owns prepare/execute/verify/commit/rollback/destroy transitions, persists mutation-safe run summaries, requires passing receipt evidence before promotion, discloses bounded-detail truncation, and passes receipt digests into atomic commits.
+- Added a run-scoped transaction adapter and durable execution-summary sink with cell-binding, monotonic-update, unknown-run, and mutation-isolation guards so lifecycle state can reach the owning run without entering compact history payloads.
 
 ## [2.0.0-beta.1] - 2026-07-11
 
