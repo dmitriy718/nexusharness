@@ -29,6 +29,7 @@ All notable NexusHarness changes are documented here. The format follows Keep a 
 - Began the hardened Linux provider with a fail-closed Firecracker+jailer launch-profile foundation requiring dedicated UID/GID, normalized non-colliding jail paths, an explicit cgroup parent, a new PID namespace, file limits, bounded CPU/memory, read-only boot parameters, and no guest network interfaces; the built-in seccomp default and every real isolation property remain subject to HR-006 Linux/KVM verification.
 - Added fail-closed composite portable-action dispatch that binds each admitted contract and lease digest to exactly one registered executor, rejects missing or duplicate action routes, and prevents admission replay or action-kind switching while file, shell, and remote-effect adapters are migrated independently.
 - Added a broker-enforced regular-file deletion adapter with bounded pre-image registration, contextual approval, pre-approval and post-approval drift rejection, required observed deletion effects, and explicit refusal of recursive directory deletion.
+- Added injectable lease-use and receipt-chain stores to routed file adapters so a composed cell can enforce single-use authority and one tamper-evident receipt chain across action kinds instead of accidentally isolating broker state per adapter.
 
 ## [2.0.0-beta.1] - 2026-07-11
 

@@ -6,6 +6,8 @@ import { join } from "node:path";
 import { promisify } from "node:util";
 import { CompositePortableActionExecutor } from "../server/execution/compositeActionExecutor";
 import { PortableFileActionExecutor } from "../server/execution/fileActionExecutor";
+import { PortableFileDeleteExecutor } from "../server/execution/fileDeleteExecutor";
+import { InMemoryLeaseUseStore, InMemoryReceiptChainStore } from "../server/execution/broker";
 import { capabilityLeaseSchema, cellSpecSchema, contractedActionSchema, executionCellSchema, executionDigest, type ActionReceipt, type CapabilityLease, type ContractedAction } from "../server/execution/contracts";
 import { PortableWorktreeProvider, portableWorkspaceDigest, type PortableActionExecutor } from "../server/execution/portableWorktreeProvider";
 import { TransactionService } from "../server/execution/transactionService";
@@ -161,6 +163,52 @@ describe("composite portable action executor", () => {
     expect(await readFile(join(root, target), "utf8")).toBe("generated\n");
     await service.destroy("cell-1");
   });
+
+  it("shares one receipt chain across routed write and delete adapters", async () => {
+    const fixture = await routedFileAdapters();
+    const writeRegistration = fixture.write.registerFileWrite("write-contract", {
+      settings: settings(fixture.root), relativePath: "generated.txt", content: "generated\n"
+    });
+    const deleteRegistration = await fixture.remove.registerFileDelete("delete-contract", {
+      settings: settings(fixture.root), relativePath: "delete-me.txt"
+    });
+    const writeLease = routedLease("write-lease", ["generated.txt"], ["delete-me.txt"]);
+    const deleteLease = routedLease("delete-lease", ["generated.txt"], ["delete-me.txt"]);
+    const writeInput = routedInput(fixture.root, writeContract("write-contract", writeLease, writeRegistration), writeLease);
+    const deleteInput = routedInput(fixture.root, deleteContract("delete-contract", deleteLease, deleteRegistration), deleteLease);
+
+    await fixture.composite.authorize(writeInput);
+    const first = await fixture.composite.execute(writeInput);
+    await fixture.composite.authorize(deleteInput);
+    const second = await fixture.composite.execute(deleteInput);
+
+    expect(first.previousReceiptDigest).toBeUndefined();
+    expect(second.previousReceiptDigest).toBe(executionDigest(first));
+    expect(await readFile(join(fixture.root, "generated.txt"), "utf8")).toBe("generated\n");
+    await expect(readFile(join(fixture.root, "delete-me.txt"), "utf8")).rejects.toThrow();
+  });
+
+  it("blocks single-use lease replay across different routed action kinds", async () => {
+    const fixture = await routedFileAdapters();
+    const writeRegistration = fixture.write.registerFileWrite("write-contract", {
+      settings: settings(fixture.root), relativePath: "generated.txt", content: "generated\n"
+    });
+    const deleteRegistration = await fixture.remove.registerFileDelete("delete-contract", {
+      settings: settings(fixture.root), relativePath: "delete-me.txt"
+    });
+    const sharedLease = routedLease("shared-lease", ["generated.txt"], ["delete-me.txt"]);
+    const writeInput = routedInput(fixture.root, writeContract("write-contract", sharedLease, writeRegistration), sharedLease);
+    const deleteInput = routedInput(fixture.root, deleteContract("delete-contract", sharedLease, deleteRegistration), sharedLease);
+
+    await fixture.composite.authorize(writeInput);
+    await expect(fixture.composite.execute(writeInput)).resolves.toMatchObject({ status: "succeeded" });
+    await fixture.composite.authorize(deleteInput);
+    await expect(fixture.composite.execute(deleteInput)).resolves.toMatchObject({
+      status: "blocked",
+      variances: [{ kind: "forbidden", severity: "blocking", effectTarget: "lease" }]
+    });
+    expect(await readFile(join(fixture.root, "delete-me.txt"), "utf8")).toBe("remove me\n");
+  });
 });
 
 function fixtureExecutor(): PortableActionExecutor & { authorize: ReturnType<typeof vi.fn>; execute: ReturnType<typeof vi.fn> } {
@@ -218,4 +266,80 @@ function settings(workspaceRoot: string): Settings {
 async function git(cwd: string, args: string[]) {
   const result = await execFileAsync("git", args, { cwd, windowsHide: true });
   return result.stdout.trim();
+}
+
+async function routedFileAdapters() {
+  const root = await mkdtemp(join(tmpdir(), "nexus-routed-broker-"));
+  sandboxes.push(root);
+  await writeFile(join(root, "delete-me.txt"), "remove me\n", "utf8");
+  const leases = new InMemoryLeaseUseStore();
+  const receipts = new InMemoryReceiptChainStore();
+  let id = 0;
+  const common = {
+    authorize: async () => undefined,
+    toolAudit: async () => undefined,
+    brokerAudit: { append: async () => undefined },
+    leases,
+    receipts,
+    now: () => new Date("2026-07-11T15:10:00.000Z"),
+    id: () => `routed-receipt-${++id}`
+  };
+  const write = new PortableFileActionExecutor(common);
+  const remove = new PortableFileDeleteExecutor(common);
+  const composite = new CompositePortableActionExecutor([
+    { kinds: ["file.write"], executor: write },
+    { kinds: ["file.delete"], executor: remove }
+  ]);
+  return { root, write, remove, composite };
+}
+
+function routedLease(id: string, write: string[], remove: string[]) {
+  return capabilityLeaseSchema.parse({
+    schemaVersion: 1, id, objectiveId: "objective-1", cellId: "cell-1", issuedAt: "2026-07-11T15:00:00.000Z",
+    expiresAt: "2026-07-11T16:00:00.000Z", singleUse: true, status: "active",
+    capabilities: { read: [], write, delete: remove, execute: [], network: [], secrets: [] }, policyVersion: "routed-files-v1"
+  });
+}
+
+function writeContract(
+  id: string,
+  lease: CapabilityLease,
+  registration: { relativePath: string; payloadDigest: string; afterDigest: string }
+) {
+  return contractedActionSchema.parse({
+    schemaVersion: 1, id, objectiveId: lease.objectiveId, cellId: lease.cellId, leaseId: lease.id,
+    issuedAt: lease.issuedAt, expiresAt: lease.expiresAt, purpose: "Write through a routed adapter.",
+    action: { kind: "file.write", risk: "write", payloadDigest: registration.payloadDigest }, capabilities: lease.capabilities,
+    requires: [{ kind: "write", value: registration.relativePath }], preconditions: [],
+    expectedEffects: [
+      { kind: "file.create", target: registration.relativePath, required: false, expectedDigest: registration.afterDigest, description: "Create the file." },
+      { kind: "file.update", target: registration.relativePath, required: false, expectedDigest: registration.afterDigest, description: "Update the file." }
+    ],
+    forbiddenEffects: [], invariants: ["No other path changes."], successEvidence: ["Broker policy passes."],
+    rollback: { kind: "discard_cell", description: "Discard the cell." }
+  });
+}
+
+function deleteContract(
+  id: string,
+  lease: CapabilityLease,
+  registration: { relativePath: string; payloadDigest: string }
+) {
+  return contractedActionSchema.parse({
+    schemaVersion: 1, id, objectiveId: lease.objectiveId, cellId: lease.cellId, leaseId: lease.id,
+    issuedAt: lease.issuedAt, expiresAt: lease.expiresAt, purpose: "Delete through a routed adapter.",
+    action: { kind: "file.delete", risk: "write", payloadDigest: registration.payloadDigest }, capabilities: lease.capabilities,
+    requires: [{ kind: "delete", value: registration.relativePath }], preconditions: [],
+    expectedEffects: [{ kind: "file.delete", target: registration.relativePath, required: true, description: "Delete the file." }],
+    forbiddenEffects: [], invariants: ["No other path changes."], successEvidence: ["Broker policy passes."],
+    rollback: { kind: "discard_cell", description: "Discard the cell." }
+  });
+}
+
+function routedInput(root: string, contract: ContractedAction, lease: CapabilityLease) {
+  const cell = executionCellSchema.parse({
+    schemaVersion: 1, id: "cell-1", specDigest: digest("f"), provider: "portable-worktree", providerRef: "fixture:cell-1",
+    baseRevision: "a".repeat(40), state: "executing", preparedAt: lease.issuedAt, updatedAt: lease.issuedAt
+  });
+  return { cell, workingDirectory: root, contract, lease };
 }
