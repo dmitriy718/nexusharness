@@ -5,3 +5,6 @@ dist-server/
 .nexusharness-dev.*.log
 *.log
 .env
+control/.locks/
+control/claims/active/*.json
+!control/claims/active/.gitkeep
