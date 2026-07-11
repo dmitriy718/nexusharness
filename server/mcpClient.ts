@@ -4,6 +4,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import type { McpServerConfig } from "./types.js";
+import { buildInfo } from "./version.js";
 
 type PooledClient = { client: Client; transport: Transport; idleTimer?: NodeJS.Timeout };
 const clientPool = new Map<string, Promise<PooledClient>>();
@@ -46,7 +47,7 @@ function scheduleIdleClose(key: string, pooled: PooledClient) {
 }
 
 async function createPooledClient(server: McpServerConfig): Promise<PooledClient> {
-  const client = new Client({ name: "NexusHarness", version: "0.1.0" }, { capabilities: {} });
+  const client = new Client({ name: "NexusHarness", version: buildInfo.version }, { capabilities: {} });
   const transport = createTransport(server);
   try {
     await withTimeout("MCP connect", 15000, client.connect(transport));
@@ -101,31 +102,42 @@ export async function callMcpTool(server: McpServerConfig, name: string, args: R
   return withMcpClient(server, (client) => client.callTool({ name, arguments: args }));
 }
 
-function canConnect(port: number): Promise<boolean> {
+function canConnect(port: number, signal?: AbortSignal): Promise<boolean> {
   return new Promise((resolve) => {
     const socket = net.createConnection({ host: "127.0.0.1", port, timeout: 250 });
-    socket.once("connect", () => {
+    let settled = false;
+    const finish = (value: boolean) => {
+      if (settled) return;
+      settled = true;
+      signal?.removeEventListener("abort", abort);
       socket.destroy();
-      resolve(true);
+      resolve(value);
+    };
+    const abort = () => finish(false);
+    if (signal?.aborted) return abort();
+    signal?.addEventListener("abort", abort, { once: true });
+    socket.once("connect", () => {
+      finish(true);
     });
     socket.once("timeout", () => {
-      socket.destroy();
-      resolve(false);
+      finish(false);
     });
-    socket.once("error", () => resolve(false));
+    socket.once("error", () => finish(false));
   });
 }
 
-export async function discoverMcpServers(start: number, end: number): Promise<McpServerConfig[]> {
+export async function discoverMcpServers(start: number, end: number, signal?: AbortSignal): Promise<McpServerConfig[]> {
   const ports = Array.from({ length: Math.max(0, end - start + 1) }, (_, index) => start + index);
   const openPorts: number[] = [];
   for (let index = 0; index < ports.length; index += 100) {
+    signal?.throwIfAborted();
     const batch = ports.slice(index, index + 100);
-    const checks = await Promise.all(batch.map(async (port) => ({ port, open: await canConnect(port) })));
+    const checks = await Promise.all(batch.map(async (port) => ({ port, open: await canConnect(port, signal) })));
     openPorts.push(...checks.filter((check) => check.open).map((check) => check.port));
   }
   const servers: McpServerConfig[] = [];
   for (const port of openPorts) {
+    signal?.throwIfAborted();
     const endpoint = `http://127.0.0.1:${port}`;
     try {
       const tools = await listMcpTools({ id: "", name: `localhost:${port}`, endpoint, transport: "http", enabled: true, status: "unknown", tools: [] });

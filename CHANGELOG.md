@@ -13,6 +13,7 @@ All notable NexusHarness changes are documented here. The format follows Keep a 
 - Contextual approval review with originating run/subtask links, shell/cwd context, pre-execution file diffs and hashes, recursive-delete warnings, and redacted raw payloads.
 - Full local audit ledger with actor/risk/status/action filters, chronological sorting, run and target linkage, a formatted event drawer, responsive windowing, and explicitly scoped redacted JSON export.
 - Guided runtime setup that tests without persistence, reviews discovered models before save, reports session health/latency, exposes searchable capabilities, and provides explicit-save agent assignments with tool compatibility guidance.
+- Bounded MCP discovery with real chunk progress and cancellation, HTTP/stdio guided setup, inspected server details, searchable risk-classified tools, JSON schemas, protected bulk/per-tool toggles, and a separate local-tool policy view.
 
 ### Changed
 
@@ -23,6 +24,7 @@ All notable NexusHarness changes are documented here. The format follows Keep a 
 - Rejected approvals now fail their recorded originating waiting run directly instead of relying only on error-message matching.
 - Approval decisions preserve their run and subtask context in the audit ledger, and the compact state poll no longer limits the dedicated audit view to 200 events.
 - Runtime removal now identifies and clears affected agent roles, while unavailable saved assignments remain visible instead of silently appearing unassigned.
+- MCP client identity now follows the synchronized application version instead of advertising the legacy v0.1.0 identifier.
 
 ## [2.0.0-alpha.1] - 2026-07-11
 

@@ -128,18 +128,25 @@ app.post("/api/mcp", asyncRoute(async (req, res) => {
   res.status(201).json(server);
 }));
 
-app.post("/api/mcp/discover", asyncRoute(async (_req, res) => {
+app.post("/api/mcp/discover", asyncRoute(async (req, res) => {
   const store = await loadStore();
   if (!store.settings.mcpAutoDiscovery) {
     return res.status(409).json({ error: "MCP auto-discovery is disabled in settings." });
   }
-  const found = await discoverMcpServers(store.settings.mcpPortStart, store.settings.mcpPortEnd);
+  const start = req.body?.start ?? store.settings.mcpPortStart;
+  const end = req.body?.end ?? Math.min(store.settings.mcpPortEnd, Number(start) + 499);
+  if (!Number.isInteger(start) || !Number.isInteger(end) || start < store.settings.mcpPortStart || end > store.settings.mcpPortEnd || start > end || end - start + 1 > 500) {
+    return res.status(400).json({ error: `Discovery range must be an integer subset of ${store.settings.mcpPortStart}-${store.settings.mcpPortEnd} containing at most 500 ports.` });
+  }
+  const controller = new AbortController();
+  req.once("aborted", () => controller.abort());
+  const found = await discoverMcpServers(start, end, controller.signal);
   const existing = new Set(store.mcpServers.map((server) => server.endpoint));
   const fresh = found.filter((server) => !existing.has(server.endpoint));
   store.mcpServers.push(...fresh);
   await saveStore(store);
-  await audit({ actor: "operator", action: "mcp.discover", risk: "network", status: "ok", message: `Discovered ${fresh.length} MCP servers.` });
-  res.json(fresh);
+  await audit({ actor: "operator", action: "mcp.discover", risk: "network", status: "ok", message: `Scanned ports ${start}-${end}; discovered ${fresh.length} new MCP servers.` });
+  res.json({ servers: fresh, range: { start, end }, scanned: end - start + 1 });
 }));
 
 app.put("/api/mcp/:id", asyncRoute(async (req, res) => {

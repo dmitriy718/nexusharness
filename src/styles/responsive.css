@@ -1,4 +1,16 @@
 @media (max-width: 1240px) {
+  .tool-browser-grid {
+    grid-template-columns: 220px minmax(0, 1fr);
+  }
+
+  .server-facts {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .server-enable-control {
+    grid-column: 1 / -1;
+  }
+
   .runtime-wizard-grid {
     grid-template-columns: 1fr;
   }
@@ -319,6 +331,70 @@
   .assignment-savebar > div,
   .assignment-savebar .button {
     width: 100%;
+  }
+
+  .feature-tabs {
+    width: 100%;
+  }
+
+  .feature-tabs button {
+    min-width: 0;
+    flex: 1;
+    justify-content: center;
+    padding-inline: 7px;
+    white-space: normal;
+  }
+
+  .feature-tabs button > span {
+    display: none;
+  }
+
+  .tool-stats {
+    grid-template-columns: 1fr;
+  }
+
+  .discovery-progress > header,
+  .scan-progress-meta,
+  .policy-banner,
+  .server-detail > footer {
+    align-items: stretch;
+    grid-template-columns: 1fr;
+    flex-direction: column;
+  }
+
+  .tool-filterbar,
+  .tool-browser-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .server-nav {
+    max-height: 250px;
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .server-facts {
+    grid-template-columns: 1fr;
+  }
+
+  .server-enable-control {
+    grid-column: auto;
+  }
+
+  .tool-detail-row {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .tool-toggle {
+    grid-column: 2;
+  }
+
+  .policy-banner > .button {
+    width: 100%;
+  }
+
+  .local-tool-grid {
+    grid-template-columns: 1fr;
   }
 
   .assignment-savebar .button {
