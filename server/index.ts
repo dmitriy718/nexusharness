@@ -253,7 +253,7 @@ app.post("/api/approvals/:id/:decision", asyncRoute(async (req, res) => {
   approval.decision = decision as "approved" | "rejected";
   approval.decidedAt = new Date().toISOString();
   if (approval.decision === "rejected") {
-    for (const run of store.runs.filter((item) => item.status === "waiting_approval" && item.error?.includes(approval.id))) {
+    for (const run of store.runs.filter((item) => item.status === "waiting_approval" && (item.id === approval.runId || item.error?.includes(approval.id)))) {
       run.status = "failed";
       run.error = `Operator rejected ${approval.action}. approvalId=${approval.id}`;
       run.updatedAt = new Date().toISOString();

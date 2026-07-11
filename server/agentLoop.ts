@@ -61,13 +61,13 @@ async function availableTools() {
   return [...localToolSchemas(), ...mcpTools];
 }
 
-async function invokeTool(name: string, args: Record<string, unknown>, signal: AbortSignal) {
+async function invokeTool(name: string, args: Record<string, unknown>, signal: AbortSignal, context: { runId: string; subtask: string }) {
   const store = await loadStore();
   if (name === "file_list") return listFiles(store.settings, String(args.path ?? "."));
   if (name === "file_read") return readWorkspaceFile(store.settings, String(args.path), { offset: Number(args.offset ?? 0), limit: Number(args.limit ?? 40_000) });
-  if (name === "file_write") return writeWorkspaceFile(store.settings, String(args.path), String(args.content ?? ""));
-  if (name === "file_delete") return deleteWorkspacePath(store.settings, String(args.path));
-  if (name === "shell_exec") return runShell(store.settings, String(args.command), signal);
+  if (name === "file_write") return writeWorkspaceFile(store.settings, String(args.path), String(args.content ?? ""), context);
+  if (name === "file_delete") return deleteWorkspacePath(store.settings, String(args.path), context);
+  if (name === "shell_exec") return runShell(store.settings, String(args.command), signal, context);
   if (name.startsWith("mcp_")) {
     const server = store.mcpServers.find((item) => name.startsWith(`mcp_${item.id}_`));
     if (!server) throw new Error(`No enabled MCP server matches tool ${name}.`);
@@ -100,7 +100,7 @@ function truncateContext(text: string, maxCharacters: number): string {
   return `${text.slice(0, half)}\n\n[Earlier context truncated by NexusHarness]\n\n${text.slice(-half)}`;
 }
 
-async function runExecutorSubtask(task: string, plan: string[], subtask: string, criticText: string, bindings: RoleBindings, signal: AbortSignal, previousOutput = ""): Promise<string> {
+async function runExecutorSubtask(runId: string, task: string, plan: string[], subtask: string, criticText: string, bindings: RoleBindings, signal: AbortSignal, previousOutput = ""): Promise<string> {
   const store = await loadStore();
   const executorMessages: ChatMessage[] = [
     { role: "system", content: `You are an Executor sub-agent. The workspace root is ${store.settings.workspaceRoot}. All filesystem tool paths must be relative to that workspace root. Never use absolute paths such as /Users, C:\\Users, /home, or Desktop paths unless the operator has configured that directory as the workspace root. Use tools to inspect and change the workspace for your assigned subtask only. Report exact changed files and commands run. If your runtime does not support native tool calls, request tools by returning only JSON like {"tool_calls":[{"name":"file_read","arguments":{"path":"package.json"}}]}.` },
@@ -116,7 +116,7 @@ async function runExecutorSubtask(task: string, plan: string[], subtask: string,
     if (toolRound === 15) throw new Error(`Executor exceeded the 16-round tool limit for subtask: ${subtask}`);
     for (const call of response.toolCalls) {
       try {
-        const result = await invokeTool(call.name, call.arguments, signal);
+        const result = await invokeTool(call.name, call.arguments, signal, { runId, subtask });
         executorMessages.push({ role: "tool", toolName: call.name, toolCallId: call.id, content: serializeToolResult(result) });
         // Local tools create their own detailed audit event. MCP calls do not,
         // so record them here without duplicating every local filesystem write.
@@ -135,13 +135,13 @@ async function runExecutorSubtask(task: string, plan: string[], subtask: string,
   return executorOutput;
 }
 
-async function runExecutorBatch(task: string, plan: string[], criticText: string, maxParallelExecutors: number, bindings: RoleBindings, signal: AbortSignal, previousOutput = "") {
+async function runExecutorBatch(runId: string, task: string, plan: string[], criticText: string, maxParallelExecutors: number, bindings: RoleBindings, signal: AbortSignal, previousOutput = "") {
   const results: Array<{ subtask: string; output: string }> = [];
   for (let index = 0; index < plan.length; index += maxParallelExecutors) {
     const batch = plan.slice(index, index + maxParallelExecutors);
     const batchResults = await Promise.all(batch.map(async (subtask) => ({
       subtask,
-      output: await runExecutorSubtask(task, plan, subtask, criticText, bindings, signal, previousOutput)
+      output: await runExecutorSubtask(runId, task, plan, subtask, criticText, bindings, signal, previousOutput)
     })));
     results.push(...batchResults);
   }
@@ -335,7 +335,7 @@ async function runValidation(store: StoreShape, run: TaskRun, signal: AbortSigna
   const output: string[] = [];
   for (const item of commands) {
     if (signal.aborted) throw new Error("Run canceled by operator.");
-    const result = await runShell(store.settings, item.command, signal);
+    const result = await runShell(store.settings, item.command, signal, { runId: run.id, subtask: "Objective validation" });
     output.push(`${item.label} (${item.command}):\n${result.stdout}${result.stderr}`.trim());
   }
   const details = output.join("\n\n");
@@ -382,6 +382,7 @@ export async function executeRun(runId: string) {
           ? run.plan
           : ["Integrate and resolve every item in the latest validation or critic feedback. Inspect the current workspace first, preserve completed work, make the required fixes, and verify the result with real commands."];
         const subtaskResults = await runExecutorBatch(
+          run.id,
           run.task,
           revisionPlan,
           criticText,

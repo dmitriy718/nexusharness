@@ -96,9 +96,16 @@ export interface ApprovalRequest {
   action: string;
   risk: RiskLevel;
   payload: unknown;
+  runId?: string;
+  subtask?: string;
   decision: ApprovalDecision;
   decidedAt?: string;
   usedAt?: string;
+}
+
+export interface ApprovalContext {
+  runId?: string;
+  subtask?: string;
 }
 
 export interface ChatMessage {
