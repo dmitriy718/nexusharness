@@ -6,6 +6,7 @@ import { callMcpTool } from "./mcpClient.js";
 import { deleteWorkspacePath, listFiles, readWorkspaceFile, runShell, writeWorkspaceFile } from "./localTools.js";
 import { attachRunExecutionSummary, audit, loadStore, saveStore } from "./store.js";
 import { RunExecutionCoordinator } from "./execution/runExecutionCoordinator.js";
+import type { CellSpec, EffectSet, ExecutionCell } from "./execution/contracts.js";
 import type { AgentRole, AuditEvent, ChatMessage, RuntimeConfig, StoreShape, TaskRun } from "./types.js";
 
 type RoleBindings = Record<AgentRole, { runtime: RuntimeConfig; model: string }>;
@@ -387,6 +388,36 @@ function destroyedRecoverySummary(summary: NonNullable<TaskRun["execution"]>, re
   };
 }
 
+function destroyedOrphanSummary(spec: CellSpec, cell: ExecutionCell, effects: EffectSet | undefined, previous?: TaskRun["execution"]): NonNullable<TaskRun["execution"]> {
+  const committed = cell.state === "committed";
+  const updatedAt = new Date(Math.max(Date.now(), Date.parse(cell.updatedAt) + 1, previous ? Date.parse(previous.updatedAt) + 1 : 0)).toISOString();
+  return {
+    schemaVersion: 1,
+    cellId: cell.id,
+    provider: "portable-worktree",
+    securityBoundary: false,
+    boundaryDescription: "Recovered disposable Git worktree; not a hostile-process or network security boundary.",
+    state: "destroyed",
+    baseRevision: cell.baseRevision,
+    networkDefault: spec.networkDefault,
+    capabilities: structuredClone(spec.capabilities),
+    budget: structuredClone(spec.budget),
+    effects: (effects?.effects ?? []).slice(-500).map(({ kind, target, status }) => ({ kind, target, status })),
+    variances: [],
+    evidence: [{
+      kind: "custom",
+      name: committed ? "Committed restart recovery" : "Unbound orphan recovery",
+      status: "warning",
+      detail: committed
+        ? "This unbound cell had already committed before its first run summary was durable. Resources were cleaned, and automatic replay is blocked."
+        : `A ${cell.state} cell existed before its first run summary was durable. Its unprovable effects were discarded.`
+    }],
+    commit: { available: false, reason: committed ? "The orphan had already committed; automatic replay is blocked." : "The unbound orphan was discarded without restored proof." },
+    rollback: { available: false, reason: "Recovered orphan resources were destroyed." },
+    updatedAt
+  };
+}
+
 function resetRunAttempt(run: TaskRun): void {
   run.phase = "execute";
   run.iteration = 0;
@@ -409,7 +440,7 @@ async function prepareRunTransaction(run: TaskRun, store: StoreShape, config: Ag
   }
   const coordinator = new RunExecutionCoordinator({
     runId: run.id,
-    ...(priorExecution ? { cellIdentity: `${run.id}:${priorExecution.cellId}:${priorExecution.updatedAt}` } : {}),
+    cellIdentity: `${run.id}:${nanoid()}`,
     settings: store.settings,
     dataRoot: executionDataRoot(config.dataRoot, store.settings.workspaceRoot),
     brokerAudit: {
@@ -453,7 +484,27 @@ async function prepareRunTransaction(run: TaskRun, store: StoreShape, config: Ag
       throw new Error("The interrupted transaction had already committed before restart. Its cell was cleaned up, but automatic re-execution is blocked to prevent duplicate effects.");
     }
   }
-  if (priorExecution) {
+  const orphans = await coordinator.recoverAndDiscardOrphans();
+  let committedOrphan = false;
+  for (const orphan of orphans) {
+    const summary = destroyedOrphanSummary(orphan.spec, orphan.cell, orphan.effects, run.execution);
+    await persistExecutionSummary(store, run.id, summary);
+    committedOrphan ||= orphan.cell.state === "committed";
+  }
+  if (orphans.length) {
+    await audit({
+      actor: "system",
+      action: "execution.transaction.orphans-recovered",
+      risk: "execute",
+      status: "ok",
+      message: run.id,
+      details: { count: orphans.length, committed: committedOrphan, discarded: true, proofRestored: false }
+    });
+  }
+  if (committedOrphan) {
+    throw new Error("An unbound transaction had already committed before restart. Its resources were cleaned up, but automatic re-execution is blocked to prevent duplicate effects.");
+  }
+  if (priorExecution || orphans.length) {
     resetRunAttempt(run);
     await saveRunProgress(run);
   }

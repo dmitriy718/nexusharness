@@ -162,6 +162,19 @@ export class RunExecutionCoordinator {
     return recovered;
   }
 
+  async recoverAndDiscardOrphans() {
+    if (this.prepared || this.destroyed) throw new Error("Orphan recovery requires a fresh coordinator before preparation.");
+    const records = await this.provider.recoverObjective(this.objectiveId);
+    const discarded: Array<(typeof records)[number] & { effects?: Awaited<ReturnType<PortableWorktreeProvider["diff"]>> }> = [];
+    for (const record of records) {
+      if (record.cell.state === "destroyed") continue;
+      const effects = await this.provider.diff(record.cell.id).catch(() => undefined);
+      discarded.push({ ...record, ...(effects ? { effects } : {}) });
+      await this.provider.destroy(record.cell.id);
+    }
+    return discarded;
+  }
+
   async list(relativePath = ".") {
     return listFiles(await this.cellSettings(), relativePath);
   }

@@ -214,15 +214,20 @@ describe("portable transactional worktree provider", () => {
     const fixture = await repository();
     const provider = fixture.provider();
     await provider.prepare(fixture.spec());
+    await provider.prepare(fixture.spec({ id: "cell-2", objectiveId: "objective-2" }));
     await provider.transition("cell-1", "executing");
 
     const restarted = fixture.provider();
     await expect(restarted.recoverCell("cell-1", "different-objective")).rejects.toThrow("different objective");
     const recoveredCell = await restarted.recoverCell("cell-1");
     expect(recoveredCell.state).toBe("failed");
+    await expect(restarted.recoverObjective("objective-1")).resolves.toEqual([
+      expect.objectContaining({ spec: expect.objectContaining({ id: "cell-1" }), cell: expect.objectContaining({ id: "cell-1", state: "failed" }) })
+    ]);
     const recovered = await restarted.recover();
     expect(recovered.find((cell) => cell.id === "cell-1")?.state).toBe("failed");
     await restarted.destroy("cell-1");
+    await restarted.destroy("cell-2");
     await expect(access(join(fixture.data, "worktrees", "cell-1"))).rejects.toThrow();
     expect(await git(fixture.root, ["status", "--porcelain"])).toBe("");
   });

@@ -58,6 +58,11 @@ interface StoredCell {
   candidateRevision?: string;
 }
 
+export interface PortableRecoveredCell {
+  spec: CellSpec;
+  cell: ExecutionCell;
+}
+
 export class PortableWorktreeProvider implements ExecutionCellProvider {
   readonly securityBoundary = false;
   readonly boundaryDescription = "Disposable Git worktree transaction isolation; not a hostile-code security sandbox.";
@@ -293,11 +298,26 @@ export class PortableWorktreeProvider implements ExecutionCellProvider {
       if (expectedObjectiveId && record.spec.objectiveId !== expectedObjectiveId) {
         throw new Error(`Execution cell ${cellId} belongs to a different objective.`);
       }
-      if (["destroyed", "committed", "rolled_back", "failed"].includes(record.cell.state)) return record.cell;
-      const worktreeAvailable = await exists(record.worktreePath) && (await this.runGit(record.worktreePath, ["rev-parse", "--is-inside-work-tree"], [0, 128])).code === 0;
-      if (!worktreeAvailable || ["preparing", "executing", "verifying"].includes(record.cell.state)) await this.updateState(record, "failed");
-      return record.cell;
+      return this.recoverRecord(record);
     });
+  }
+
+  async recoverObjective(objectiveId: string): Promise<PortableRecoveredCell[]> {
+    await this.initialize();
+    const expected = objectiveId.trim();
+    if (!expected || expected.length > 200) throw new Error("Recovery requires a bounded objective identifier.");
+    const recovered: PortableRecoveredCell[] = [];
+    for (const name of (await readdir(this.recordsRoot)).filter((item) => item.endsWith(".json")).sort()) {
+      const cellId = name.slice(0, -5);
+      const match = await this.withCellLock(cellId, async () => {
+        const record = await this.readRecord(cellId);
+        if (record.spec.objectiveId !== expected) return undefined;
+        const cell = await this.recoverRecord(record);
+        return { spec: structuredClone(record.spec), cell: structuredClone(cell) };
+      });
+      if (match) recovered.push(match);
+    }
+    return recovered;
   }
 
   private async initialize() {
@@ -379,6 +399,13 @@ export class PortableWorktreeProvider implements ExecutionCellProvider {
     assertCellTransition(record.cell.state, state);
     record.cell = executionCellSchema.parse({ ...record.cell, state, updatedAt: this.now().toISOString() });
     await this.writeRecord(record);
+  }
+
+  private async recoverRecord(record: StoredCell): Promise<ExecutionCell> {
+    if (["destroyed", "committed", "rolled_back", "failed"].includes(record.cell.state)) return record.cell;
+    const worktreeAvailable = await exists(record.worktreePath) && (await this.runGit(record.worktreePath, ["rev-parse", "--is-inside-work-tree"], [0, 128])).code === 0;
+    if (!worktreeAvailable || ["preparing", "executing", "verifying"].includes(record.cell.state)) await this.updateState(record, "failed");
+    return record.cell;
   }
 
   private async readRecord(cellId: string): Promise<StoredCell> {
