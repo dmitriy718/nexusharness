@@ -18,7 +18,7 @@ None.
 
 ### HR-005 — Real Windows Sandbox command-provider smoke
 
-- **Status:** Two owner runs failed before command output: the first lacked diagnostics; the second proved policy and primary isolation passed but the guest operation produced no result or effect. Structured transport-stage diagnostics and a simplified encoded child-process handoff are being added before retry.
+- **Status:** Three owner runs failed safely. Attempt three identified `sandbox-launch` before guest execution; review found the executor's dot-prefixed transport filenames violated the hardened launcher's alphanumeric-first filename contract. Corrected filenames and a launcher-contract regression are being added before retry.
 - **Owner action:** From `D:\projects\nexus`, run `npm run test:windows-sandbox-command`. A Sandbox window should open and close automatically.
 - **Expected result:** The first JSON report shows every `checks` value and `executionPassed` as `true`; the second shows `commit: "committed"`, `promoted: true`, `auditSucceeded: true`, and `passed: true`, followed by `Windows Sandbox command provider probe passed.`
 - **Evidence to return:** `HR-005: Pass` with the JSON, or `HR-005: Fail` with complete terminal output.
