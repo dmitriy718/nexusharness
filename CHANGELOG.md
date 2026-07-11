@@ -33,6 +33,7 @@ All notable NexusHarness changes are documented here. The format follows Keep a 
 - Made the HR-005 real Windows Sandbox command probe emit a bounded redacted assertion matrix before failure, exposing receipt/result/exit/isolation/effect conditions and safe variance/evidence metadata without command or output content.
 - Hardened Windows Sandbox command bootstrap failures into structured stage/type diagnostics and replaced the nested `Start-Process` handoff with synchronous encoded PowerShell execution and explicit `$LASTEXITCODE` capture.
 - Repaired the Windows Sandbox command executor's launcher contract by replacing rejected dot-prefixed bootstrap/completion names with alphanumeric-first safe transport filenames and enforcing the real naming rules in its controlled-launcher tests.
+- Accepted HR-005 real-host evidence for brokered Windows Sandbox PowerShell execution, observed file effects, unchanged-primary isolation, redacted diagnostics, receipt-gated commit, promotion, and audit linkage.
 
 ## [2.0.0-beta.1] - 2026-07-11
 

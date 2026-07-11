@@ -16,15 +16,6 @@ None.
 - **Why human input is required:** This Windows host cannot verify KVM, jailer privilege dropping, cgroups, namespace isolation, seccomp, or microVM boot behavior.
 - **Blocks:** Promoting the Firecracker launcher foundation to a verified Linux security boundary and complete execution-cell provider.
 
-### HR-005 — Real Windows Sandbox command-provider smoke
-
-- **Status:** Three owner runs failed safely. Attempt three identified `sandbox-launch` before guest execution; review found the executor's dot-prefixed transport filenames violated the hardened launcher's alphanumeric-first filename contract. Corrected filenames and a launcher-contract regression are being added before retry.
-- **Owner action:** From `D:\projects\nexus`, run `npm run test:windows-sandbox-command`. A Sandbox window should open and close automatically.
-- **Expected result:** The first JSON report shows every `checks` value and `executionPassed` as `true`; the second shows `commit: "committed"`, `promoted: true`, `auditSucceeded: true`, and `passed: true`, followed by `Windows Sandbox command provider probe passed.`
-- **Evidence to return:** `HR-005: Pass` with the JSON, or `HR-005: Fail` with complete terminal output.
-- **Why human input is required:** This test launches a visible real Sandbox VM and validates end-to-end command transport and promotion beyond the launcher-only HR-004 boundary.
-- **Blocks:** Selecting the Windows command executor for live validation runs.
-
 ### HR-003 — v2.0.0 release-candidate approval
 
 - **Status:** Pending; not yet ready.
@@ -34,6 +25,14 @@ None.
 - **Blocks:** Creating and publishing the final v2.0.0 tag.
 
 ## Completed actions
+
+### HR-005 — Real Windows Sandbox command-provider smoke
+
+- **Status:** Passed by the owner on 2026-07-11.
+- **Evidence:** The real guest returned a `succeeded` broker receipt and exit code 0; all five execution checks passed; the primary checkout remained unchanged before promotion; `sandbox-command-output.txt` was observed as `file.create`; variances were empty; policy evidence passed; diagnostics ended at `complete`; commit, promotion, audit linkage, and aggregate `passed` were all true.
+- **Repairs validated along the way:** redacted condition reporting, staged transport diagnostics, structured guest-bootstrap failure status, synchronous encoded PowerShell exit capture, and alphanumeric-first bootstrap/completion filenames matching hardened launcher validation.
+- **Decision:** The base Windows PowerShell command transport is accepted for live validation selection behind the verified Windows Sandbox provider. Additional guest toolchains such as Node, Git, or package managers remain separately capability-gated.
+- **Result:** The Windows command-provider checkpoint is closed without expanding its claim beyond base PowerShell transport and receipt-gated file-effect promotion.
 
 ### HR-002 — Manual assistive-technology review
 
