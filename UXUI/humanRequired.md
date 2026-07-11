@@ -8,16 +8,6 @@ None.
 
 ## Scheduled owner checkpoints
 
-### HR-004 — Real-host Windows Sandbox isolation probe
-
-- **Status:** Confirmation retry required after four diagnosed probe defects. The first attempt exposed premature cleanup (`0x80070003`); the second exposed guest-forced shutdown and a mapped-folder cleanup race (`0x80072746`/`EBUSY`); the third successfully reported every guest assertion true from `WDAGUtilityAccount` but exposed UTF-8 BOM decoding; the fourth stopped before launch because Windows PowerShell returns exit code 1 when `Get-Process` finds no remote session. Empty session discovery now uses an explicit array and `exit 0`, with parser and real-command verification.
-- **Needed after:** Hardened launcher candidate (now available in the current implementation branch and intended for `main` after verification).
-- **Owner action:** After the lifecycle repair is pushed, pull/confirm current `main`, then from `D:\projects\nexus` rerun `npm run test:windows-sandbox`. Windows Sandbox will open an interactive VM window and should close automatically within five minutes. Do not enter credentials or interact with unrelated files while it runs.
-- **Expected result:** The command prints JSON with `seedRead`, `mappedWrite`, `hostWriteback`, `networkBlocked`, `sandboxIdentity`, and `passed` all set to `true`, followed by `Windows Sandbox isolation probe passed.`
-- **Evidence to return:** Paste `HR-004: Pass` plus the final JSON, or `HR-004: Fail` plus the complete terminal error and whether the Sandbox window opened/closed.
-- **Why human input is required:** The real Windows Sandbox boundary launches a visible interactive VM. Automated tests validate profile construction and launcher cleanup but cannot silently certify host virtualization, guest identity, or network egress denial.
-- **Blocks:** Marking the Windows launcher as a verified security boundary and promoting it into a complete `windows-sandbox` execution-cell provider.
-
 ### HR-002 — Manual assistive-technology review
 
 - **Status:** Ready for owner action; automated candidate passed on 2026-07-11.
@@ -46,6 +36,14 @@ None.
 - **Blocks:** Creating and publishing the final v2.0.0 tag.
 
 ## Completed actions
+
+### HR-004 — Real-host Windows Sandbox isolation probe
+
+- **Status:** Passed by the owner on 2026-07-11.
+- **Evidence:** `seedRead`, `mappedWrite`, `networkBlocked`, `sandboxIdentity`, `hostWriteback`, and final `passed` all returned `true`; the guest identity was `WDAGUtilityAccount` and the command ended with `Windows Sandbox isolation probe passed.`
+- **Repairs validated along the way:** guest-completion retention, host-owned session shutdown, mapped-folder cleanup retry, BOM-safe JSON interchange, and successful empty-session discovery.
+- **Decision:** The hardened launcher may truthfully advertise its Windows Sandbox virtualization boundary. Full execution-cell provider integration remains a separate implementation gate.
+- **Result:** Windows launcher boundary verification is unblocked; no claim is made yet about unfinished command transport, effect harvesting, persistence, or atomic promotion.
 
 ### HR-001 — Representative v2 visual review
 
