@@ -4,17 +4,21 @@ This file records work that requires the project owner and cannot be completed s
 
 ## Current blocking actions
 
-None.
-
-## Scheduled owner checkpoints
-
 ### HR-001 — Representative v2 visual review
 
-- **Status:** Pending; not yet ready.
-- **Needed after:** Phase 3 coded prototypes for onboarding, dashboard, run detail, and approval review.
-- **Owner action:** Review desktop, tablet, and mobile captures and approve the Midnight Prism application direction or list requested revisions.
+- **Status:** Ready and blocking broad feature rollout.
+- **Owner action:** Start the application with npm run dev, then review:
+  1. http://127.0.0.1:5173/dashboard at approximately 1440 px, 1024 px, and 390 px widths.
+  2. http://127.0.0.1:5173/onboarding.
+  3. Open any run from http://127.0.0.1:5173/runs.
+  4. http://127.0.0.1:5173/approvals. The detailed review appears when a real run has a pending approval.
+  5. Keyboard focus visibility and the mobile navigation drawer.
+- **Decision needed:** Reply with approval of the Midnight Prism direction or list concrete revisions. Studio and Orchestrate are intentionally labeled Preview at this checkpoint.
 - **Why human input is required:** Visual preference and brand acceptance belong to the owner.
-- **Blocks:** Broad feature rollout after the representative prototype checkpoint.
+- **Agent verification already completed:** Lint, tests, TypeScript, production build, isolated production runtime, desktop dashboard/onboarding/run/approval rendering, and responsive shell inspection.
+- **Blocks:** Phase 4 and later broad feature rollout.
+
+## Scheduled owner checkpoints
 
 ### HR-002 — Manual assistive-technology review
 

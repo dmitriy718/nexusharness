@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="NexusHarness">
+  <defs>
+    <linearGradient id="prism" x1="8" y1="8" x2="56" y2="56" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#9284ff"/>
+      <stop offset=".52" stop-color="#6d9fff"/>
+      <stop offset="1" stop-color="#51d8e8"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" rx="18" fill="#101625"/>
+  <path d="M18 21.5 32 13l14 8.5v17L32 47l-14-8.5v-17Z" fill="none" stroke="url(#prism)" stroke-width="4"/>
+  <circle cx="18" cy="21.5" r="4" fill="#9284ff"/>
+  <circle cx="46" cy="21.5" r="4" fill="#51d8e8"/>
+  <circle cx="32" cy="47" r="4" fill="#6d9fff"/>
+  <path d="m18 21.5 14 8.2 14-8.2M32 29.7V47" fill="none" stroke="#f4f7ff" stroke-opacity=".78" stroke-width="3"/>
+</svg>
