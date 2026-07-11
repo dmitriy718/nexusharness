@@ -23,6 +23,7 @@ All notable NexusHarness changes are documented here. The format follows Keep a 
 - Accepted HR-004 real-host evidence and promoted the hardened Windows Sandbox launcher from an unverified candidate to a verified virtualization boundary; full execution-cell integration remains pending.
 - Added the `windows-sandbox` execution-cell provider by composing the verified Sandbox action boundary with isolated Git staging, mutation-safe persisted records, snapshots, effects, receipt-gated promotion, teardown, and interrupted-state recovery; only explicitly Sandbox-isolated action executors are accepted.
 - Moved Windows Sandbox remote-session ownership into the reusable launcher so every caller preserves pre-existing sessions, closes only sessions it created, and cleans temporary profiles even when session teardown fails.
+- Added brokered Windows Sandbox PowerShell command transport with digest-bound registration, approval preflight, encoded guest scripts, bounded BOM-safe results, one-use output retrieval, host-observed Git effects, single-use leases, and redacted failure receipts.
 
 ## [2.0.0-beta.1] - 2026-07-11
 
