@@ -1,4 +1,8 @@
 @media (max-width: 1240px) {
+  .memory-filterbar {
+    grid-template-columns: minmax(220px, 1.5fr) repeat(2, minmax(130px, 1fr));
+  }
+
   .tool-browser-grid {
     grid-template-columns: 220px minmax(0, 1fr);
   }
@@ -415,6 +419,24 @@
 
   .workspace-actions .button {
     width: 100%;
+  }
+
+  .memory-metrics,
+  .memory-filterbar {
+    grid-template-columns: 1fr;
+  }
+
+  .memory-undo {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+
+  .memory-undo .button {
+    grid-column: 1 / -1;
+    width: 100%;
+  }
+
+  .memory-provenance {
+    grid-template-columns: 1fr;
   }
 
   .assignment-savebar .button {
