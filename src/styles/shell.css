@@ -196,13 +196,23 @@
   border-radius: 50%;
 }
 
-.local-chip span.online {
+.local-chip.state-online span {
   background: var(--green);
   box-shadow: 0 0 8px rgba(80, 217, 155, 0.6);
 }
 
-.local-chip span.offline {
+.local-chip.state-offline span {
   background: var(--red);
+}
+
+.local-chip.state-reconnecting span,
+.local-chip.state-booting span {
+  background: var(--cyan);
+  box-shadow: 0 0 8px rgba(78, 211, 255, 0.5);
+}
+
+.local-chip.state-stale span {
+  background: var(--amber);
 }
 
 .collapse-button {
@@ -332,6 +342,31 @@
   font-size: 11px;
 }
 
+.live-state {
+  min-height: 28px;
+  padding: 0 9px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 9px;
+  white-space: nowrap;
+}
+
+.live-state > span {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--green);
+}
+
+.live-state.state-offline > span { background: var(--red); }
+.live-state.state-stale > span { background: var(--amber); }
+.live-state.state-reconnecting > span,
+.live-state.state-booting > span { background: var(--cyan); }
+
 .app-stage > main {
   min-width: 0;
 }
@@ -353,16 +388,40 @@
 }
 
 .global-error {
+  justify-content: flex-start;
   color: #ffd0d6;
   background: rgba(255, 113, 130, 0.1);
   border-bottom: 1px solid rgba(255, 113, 130, 0.28);
 }
 
-.global-error button {
-  background: transparent;
+.global-error > svg {
+  width: 18px;
+  flex: 0 0 auto;
+}
+
+.global-error > span {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+  flex: 1;
+}
+
+.global-error > span small {
+  color: rgba(255, 224, 228, 0.75);
+  overflow-wrap: anywhere;
+}
+
+.global-error > div {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.global-error .button {
+  min-height: 32px;
+  padding: 0 9px;
   color: inherit;
-  cursor: pointer;
-  text-decoration: underline;
+  font-size: 9px;
 }
 
 .mobile-bar {
@@ -407,7 +466,6 @@
   background: rgba(27, 36, 56, 0.96);
   color: var(--text);
   box-shadow: var(--shadow-lg);
-  cursor: pointer;
   text-align: left;
 }
 
@@ -417,6 +475,37 @@
 
 .toast-danger {
   border-color: rgba(255, 113, 130, 0.4);
+}
+
+.toast-warning {
+  border-color: rgba(255, 195, 97, 0.42);
+}
+
+.toast > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.toast > button {
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 7px;
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.toast > button:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text);
+}
+
+.toast > button svg {
+  width: 13px;
 }
 
 .boot-screen {
