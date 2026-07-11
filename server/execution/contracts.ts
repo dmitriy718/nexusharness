@@ -311,6 +311,7 @@ export interface ExecutionCellProvider {
   readonly securityBoundary: boolean;
   readonly boundaryDescription: string;
   prepare(spec: CellSpec): Promise<ExecutionCell>;
+  authorize?(cellId: string, contract: ContractedAction, lease: CapabilityLease): Promise<void>;
   execute(cellId: string, contract: ContractedAction, lease: CapabilityLease): Promise<ActionReceipt>;
   transition(cellId: string, nextState: CellState): Promise<ExecutionCell>;
   snapshot(cellId: string, reason: string): Promise<CellSnapshot>;

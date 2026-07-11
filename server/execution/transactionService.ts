@@ -72,6 +72,7 @@ export class TransactionService {
       }
       if (contract.cellId !== cellId || lease.cellId !== cellId) throw new Error("Contract and lease must target the managed execution cell.");
 
+      await this.options.provider.authorize?.(cellId, contract, lease);
       session.lastCommitRejection = undefined;
       session.cell = executionCellSchema.parse(await this.options.provider.transition(cellId, "executing"));
       await this.refresh(session, "Contracted action started", false);
