@@ -35,6 +35,7 @@ All notable NexusHarness changes are documented here. The format follows Keep a 
 - MCP client identity now follows the synchronized application version instead of advertising the legacy v0.1.0 identifier.
 - Workspace path-policy violations now return actionable HTTP 400 responses while preserving the resolved-root and symbolic-link boundary checks.
 - Strengthened route announcements, visible focus, modal navigation and audit focus handling, arrow-key tabs, field-error associations, disclosure-list workspace semantics, secondary-text contrast, and coarse-pointer targets.
+- Replaced compact-state-only run history with bounded server-side search/status paging and complete older-run detail, audit, approval, deep-link, and duplicate context.
 
 ## [2.0.0-alpha.1] - 2026-07-11
 

@@ -11,6 +11,7 @@ import { cancelRun, executeRun, isRunActive, startTask } from "./agentLoop.js";
 import { previewWorkspaceFile, searchWorkspace, workspaceEntries, workspaceTree } from "./localTools.js";
 import type { McpServerConfig } from "./types.js";
 import { buildInfo } from "./version.js";
+import { parseRunHistoryQuery, runHistoryPage } from "./runHistory.js";
 
 const app = express();
 app.use(cors({ origin: ["http://127.0.0.1:5173", "http://localhost:5173"] }));
@@ -47,6 +48,25 @@ app.get("/api/audit", asyncRoute(async (_req, res) => {
   res.setHeader("Cache-Control", "no-store");
   const store = await loadStore();
   res.json(store.audit);
+}));
+
+app.get("/api/runs", asyncRoute(async (req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  const store = await loadStore();
+  res.json(runHistoryPage(store.runs, parseRunHistoryQuery(req.query)));
+}));
+
+app.get("/api/runs/:id", asyncRoute(async (req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  const store = await loadStore();
+  const run = store.runs.find((item) => item.id === String(req.params.id));
+  if (!run) return res.status(404).json({ error: "Run not found." });
+  const audit = store.audit.filter((event) => {
+    const details = event.details && typeof event.details === "object" ? event.details as Record<string, unknown> : {};
+    return details.runId === run.id || details.taskId === run.id || event.message.includes(run.id);
+  });
+  const approvals = store.approvals.filter((approval) => approval.runId === run.id);
+  res.json({ run, audit, approvals });
 }));
 
 app.put("/api/settings", asyncRoute(async (req, res) => {

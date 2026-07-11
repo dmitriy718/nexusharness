@@ -697,7 +697,8 @@
     width: min(430px, 100vw);
   }
 
-  .audit-load-more {
+  .audit-load-more,
+  .run-load-more {
     align-items: stretch;
     flex-direction: column;
     text-align: center;

@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
   ArrowLeft,
@@ -17,7 +17,7 @@ import {
   X
 } from "lucide-react";
 import { api, errorMessage } from "../../api/client";
-import type { RunPhase, TaskRun } from "../../api/types";
+import type { RunDetailRecord, RunPhase, TaskRun } from "../../api/types";
 import { useHarness } from "../../app/StoreProvider";
 import { EmptyState, InlineAlert, RunStatusBadge, formatDate, formatDuration, handleTabListKeyDown, shortId } from "../../components/ui";
 import { displayRunValue, phaseState, runActions, runSummary } from "./runModel";
@@ -39,18 +39,40 @@ export function RunDetailPage() {
   const navigate = useNavigate();
   const [busy, setBusy] = useState("");
   const [actionError, setActionError] = useState("");
+  const [detail, setDetail] = useState<RunDetailRecord | null>(null);
+  const [detailLoading, setDetailLoading] = useState(true);
+  const [detailError, setDetailError] = useState("");
   const [inspector, setInspector] = useState<"overview" | "outputs" | "activity">("overview");
   const [mode, setMode] = useState<RunMode>(() => (localStorage.getItem("nexusharness.runMode") as RunMode | null) ?? modeFromLayout(store?.settings.layout ?? null));
-  const run = store?.runs.find((item) => item.id === runId);
+  const compactRun = store?.runs.find((item) => item.id === runId);
+  const loadDetail = useCallback(async (signal?: AbortSignal) => {
+    if (!runId) return null;
+    const record = await api<RunDetailRecord>(`/api/runs/${encodeURIComponent(runId)}`, { signal });
+    setDetail(record);
+    setDetailError("");
+    return record;
+  }, [runId]);
 
-  const events = useMemo(() => store?.audit.filter((event) => {
+  useEffect(() => {
+    const controller = new AbortController();
+    setDetailLoading(true);
+    void loadDetail(controller.signal).catch((caught) => {
+      if (!controller.signal.aborted) setDetailError(errorMessage(caught));
+    }).finally(() => { if (!controller.signal.aborted) setDetailLoading(false); });
+    return () => controller.abort();
+  }, [loadDetail]);
+
+  const run = detail?.run ?? compactRun;
+
+  const events = useMemo(() => detail && detail.run.id === runId ? detail.audit.slice(0, 30) : store?.audit.filter((event) => {
     const details = JSON.stringify(event.details ?? "");
     return details.includes(runId ?? "") || event.message.includes(runId ?? "");
-  }).slice(0, 30) ?? [], [runId, store?.audit]);
+  }).slice(0, 30) ?? [], [detail, runId, store?.audit]);
 
   if (!store) return null;
-  if (!run) return <div className="page"><EmptyState title="Run not found" detail="This run may have been removed from local history." action={<Link className="button secondary" to="/runs">Back to runs</Link>} /></div>;
+  if (!run) return <div className="page"><EmptyState title={detailLoading ? "Loading run" : "Run not found"} detail={detailError || (detailLoading ? "Reading the complete local run record." : "This run may have been removed from local history.")} action={!detailLoading && <Link className="button secondary" to="/runs">Back to runs</Link>} /></div>;
   const eligibility = runActions(run);
+  const contextualStore = detail?.run.id === run.id ? { ...store, runs: [run, ...store.runs.filter((item) => item.id !== run.id)], audit: detail.audit, approvals: detail.approvals } : store;
 
   const action = async (kind: "resume" | "cancel") => {
     setBusy(kind);
@@ -62,6 +84,7 @@ export function RunDetailPage() {
       }
       await api("/api/tasks/" + run.id + "/" + kind, { method: "POST" });
       await refresh();
+      await loadDetail();
       notify(kind === "cancel" ? "Run canceled." : "Run resumed.");
     } catch (error) {
       setActionError(errorMessage(error));
@@ -145,8 +168,8 @@ export function RunDetailPage() {
           }}><Clipboard />Copy summary</button>
         </aside>
       </div>}
-      {mode === "studio" && <StudioMode run={run} store={store} />}
-      {mode === "orchestrate" && <OrchestrateMode run={run} store={store} />}
+      {mode === "studio" && <StudioMode run={run} store={contextualStore} />}
+      {mode === "orchestrate" && <OrchestrateMode run={run} store={contextualStore} />}
     </div>
   );
 }
