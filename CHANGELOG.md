@@ -19,6 +19,7 @@ All notable NexusHarness changes are documented here. The format follows Keep a 
 - Repaired the Windows Sandbox probe lifecycle so host launcher exit no longer deletes its profile or mapped folder before the guest writes a validated completion file.
 - Repaired real-host probe shutdown and cleanup by removing guest-forced shutdown, closing only probe-created Sandbox sessions, preserving pre-existing sessions, and retrying transient mapped-folder locks.
 - Made Windows Sandbox probe result interchange BOM-safe by emitting BOM-free UTF-8 in the Windows PowerShell guest and accepting legacy BOM-prefixed JSON on the Node host.
+- Made an empty Windows Sandbox session list a successful preflight result instead of treating PowerShell's no-process exit code as a probe failure.
 
 ## [2.0.0-beta.1] - 2026-07-11
 

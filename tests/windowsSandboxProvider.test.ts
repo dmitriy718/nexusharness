@@ -3,9 +3,11 @@ import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promise
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  WINDOWS_SANDBOX_SESSION_QUERY,
   WindowsSandboxLauncher,
   createWindowsSandboxProfile,
   parseWindowsSandboxJson,
+  parseWindowsSandboxSessionIds,
   type WindowsSandboxProcessRunner
 } from "../server/execution/windowsSandboxProvider";
 
@@ -19,6 +21,13 @@ describe("Windows Sandbox launcher foundation", () => {
   it("decodes plain and Windows PowerShell BOM-prefixed JSON results", () => {
     expect(parseWindowsSandboxJson<{ passed: boolean }>(`${String.fromCodePoint(0xfeff)}{"passed":true}`)).toEqual({ passed: true });
     expect(parseWindowsSandboxJson<{ passed: boolean }>('{"passed":true}')).toEqual({ passed: true });
+  });
+
+  it("treats no remote sessions as a successful empty set", () => {
+    expect(WINDOWS_SANDBOX_SESSION_QUERY).toContain("@(");
+    expect(WINDOWS_SANDBOX_SESSION_QUERY).toContain("exit 0");
+    expect(parseWindowsSandboxSessionIds("")).toEqual(new Set());
+    expect(parseWindowsSandboxSessionIds("120\r\nnot-a-pid\r\n240\r\n")).toEqual(new Set([120, 240]));
   });
 
   it("emits a hardened profile with one escaped writable cell mapping", () => {

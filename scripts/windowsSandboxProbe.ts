@@ -3,7 +3,12 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import { WindowsSandboxLauncher, parseWindowsSandboxJson } from "../server/execution/windowsSandboxProvider.js";
+import {
+  WINDOWS_SANDBOX_SESSION_QUERY,
+  WindowsSandboxLauncher,
+  parseWindowsSandboxJson,
+  parseWindowsSandboxSessionIds
+} from "../server/execution/windowsSandboxProvider.js";
 
 if (process.platform !== "win32") throw new Error("The Windows Sandbox probe requires a Windows host.");
 
@@ -74,9 +79,8 @@ try {
 }
 
 async function windowsSandboxSessionIds() {
-  const command = "Get-Process -Name WindowsSandboxRemoteSession -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Id";
-  const { stdout } = await execFileAsync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", command], { windowsHide: true });
-  return new Set(stdout.split(/\r?\n/).map((value) => Number(value.trim())).filter(Number.isSafeInteger));
+  const { stdout } = await execFileAsync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", WINDOWS_SANDBOX_SESSION_QUERY], { windowsHide: true });
+  return parseWindowsSandboxSessionIds(stdout);
 }
 
 async function stopNewWindowsSandboxSessions(existing: Set<number>) {

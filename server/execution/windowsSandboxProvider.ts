@@ -3,6 +3,8 @@ import { spawn } from "node:child_process";
 import { access, mkdir, realpath, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 
+export const WINDOWS_SANDBOX_SESSION_QUERY = "$processes = @(Get-Process -Name 'WindowsSandboxRemoteSession' -ErrorAction SilentlyContinue); if ($processes.Count -gt 0) { $processes | Select-Object -ExpandProperty Id }; exit 0";
+
 export interface WindowsSandboxProbe {
   launcherPresent: boolean;
   platformSupported: boolean;
@@ -170,6 +172,10 @@ export function createWindowsSandboxProfile(input: { hostFolder: string; bootstr
 
 export function parseWindowsSandboxJson<T>(content: string): T {
   return JSON.parse(content.replace(/^\uFEFF/, "")) as T;
+}
+
+export function parseWindowsSandboxSessionIds(stdout: string) {
+  return new Set(stdout.split(/\r?\n/).map((value) => Number(value.trim())).filter((value) => Number.isSafeInteger(value) && value > 0));
 }
 
 async function existingDirectory(value: string, label: string) {
