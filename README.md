@@ -1,10 +1,14 @@
 # NexusHarness
 
-NexusHarness is a local-first AI coding harness that connects local model runtimes to real agentic coding workflows. It supports Ollama, LM Studio OpenAI-compatible servers, llama.cpp server, llama.cpp CLI, MCP tools, auditable local filesystem and shell tools, approval gates, and persistent retrospectives.
+NexusHarness 2.0 is a local-first AI coding harness for operating real, inspectable model workflows. It connects Ollama, LM Studio, llama.cpp, and MCP tools to a responsive control surface with approval gates, durable run state, execution evidence, and a project control plane.
 
-This repository does not contain mock model responses, fake connectors, hardcoded secrets, or fabricated test results. If a runtime, MCP endpoint, shell, test command, or workspace path is not available, the app surfaces the real error.
+The v2 Midnight Prism interface is designed for three working styles—chat-first, IDE-style Studio, and Agent Control—while preserving the same underlying run, model, workspace, approval, memory, audit, and settings data. It supports keyboard operation, reduced motion, forced colors, narrow reflow, and high zoom.
 
-## Install
+This repository does not contain mock model responses, hardcoded secrets, or fabricated verification results. Missing runtimes, tools, services, or isolation capabilities fail visibly.
+
+## Install and run
+
+Requirements: Node.js 20 or newer and npm.
 
 ```bash
 npm install
@@ -13,35 +17,31 @@ npm run dev
 
 Open `http://127.0.0.1:5173`. The API listens on `http://127.0.0.1:8787`.
 
-For production-style local serving:
+For a production-style local build:
 
 ```bash
 npm run build
 npm start
 ```
 
-Optional environment variables are documented in `.env.example`.
+Configuration examples and optional environment variables are in `.env.example`.
 
-## First Launch
+## First launch
 
-1. Choose a UI layout: Chat-first, IDE-style, or Agent Control.
-2. Open Models and add at least one runtime. Runtime add validates the live connector and requires at least one detected model:
-   - Ollama: `http://127.0.0.1:11434`
-   - LM Studio: the local OpenAI-compatible server URL
-   - llama.cpp server: the local `/v1` compatible endpoint
-   - llama.cpp CLI: binary path and GGUF model path
+1. Choose Chat-first, Studio, or Agent Control.
+2. Add and test a model runtime. Saving is separate from testing so discovered models and capabilities can be reviewed first.
 3. Assign models to Planner, Executor, and Critic.
-4. Set workspace root, test command, linter command, shell path, and approval mode in Settings.
+4. Set the workspace root, validation commands, shell, approval mode, and concurrency in Settings.
+5. Create a task and inspect its plan, live phase, evidence, approvals, output, audit history, and retrospective.
 
-## Real Workflow Behavior
+Supported model connectors include:
 
-The task loop is implemented as a state machine:
+- Ollama
+- LM Studio through its OpenAI-compatible local server
+- llama.cpp server through a `/v1`-compatible endpoint
+- llama.cpp CLI with an installed binary and GGUF model
 
-`Plan -> Execute -> Critic -> Revise -> Test -> Retrospective -> Done`
-
-The Planner model must produce a JSON array of subtasks. The harness runs bounded parallel Executor sub-agents over the plan, each with its own message context and access to local/MCP tools. The Critic must return a structured score. If the score is below the configured threshold, the Executors revise until the max iteration limit is reached. Test and lint commands run through the same audited shell execution path; failures are fed back into the next Executor revision cycle until they pass or the iteration limit is reached.
-
-For runtimes without native tool calling, including llama.cpp CLI, Executor agents can request tools through a strict JSON fallback:
+Native tool calls and a strict JSON fallback are supported. Text-only models may request tools with:
 
 ```json
 {
@@ -54,72 +54,105 @@ For runtimes without native tool calling, including llama.cpp CLI, Executor agen
 }
 ```
 
-The harness parses that structure and routes it through the same approval, audit, and tool execution path as native tool calls.
+## Run lifecycle
 
-## Local Tools
+The durable workflow is:
 
-Local tools are constrained to `settings.workspaceRoot`:
+`Plan -> Execute -> Validate -> Critique -> Revise (when needed) -> Retrospective -> Done`
+
+Planner output is normalized, deduplicated, and bounded. Compatibility-mode first passes can use bounded parallel Executors; revisions use one integration owner so accepted work is not repeatedly overwritten. Configured lint and test commands produce objective evidence before critique. Runs persist plan, iteration, executor, validation, critic, approval, cancellation, execution, and recovery checkpoints.
+
+Runtime inventories are cached and assigned runtimes are preflighted once per run. MCP clients are pooled with bounded idle lifetimes. Browser polling uses compact state and does not continuously query model servers during inference.
+
+## Execution modes
+
+NexusHarness selects its live execution behavior explicitly with `NEXUSHARNESS_EXECUTION_MODE`.
+
+### Compatibility (default)
+
+Compatibility mode preserves the broad v1 tool surface: workspace-scoped file tools, host `shell_exec`, and enabled MCP tools. Approval, path containment, resource bounds, hashes, diffs, and audit records still apply, but model commands execute with the NexusHarness process's operating-system authority. This is not an isolation boundary.
+
+### Portable transactional
+
+Portable mode stages file effects in a disposable Git worktree, routes supported mutations through action contracts and single-use capability leases, observes actual effects, and promotes only after receipt and validation gates pass. It provides transaction and worktree isolation, not hostile-process or network isolation. Arbitrary model shell and MCP are unavailable; only operator-configured validation commands may run on the host.
+
+```powershell
+$env:NEXUSHARNESS_EXECUTION_MODE = "transactional"
+$env:NEXUSHARNESS_EXECUTION_DIR = "D:\nexus-execution"
+npm start
+```
+
+`NEXUSHARNESS_EXECUTION_DIR` must be an absolute external data path, not the source checkout.
+
+### Windows Sandbox
+
+Windows Sandbox mode adds a verified Windows virtualization boundary for brokered PowerShell commands. Commands declare predicted repository file effects; the broker compares those predictions with host-observed changes, requires a successful receipt, and promotes the detached transaction only after validation and critic acceptance. It never falls back to host shell and does not expose MCP.
+
+```powershell
+$env:NEXUSHARNESS_EXECUTION_MODE = "windows-sandbox"
+$env:NEXUSHARNESS_EXECUTION_DIR = "D:\nexus-execution"
+npm start
+```
+
+This mode requires Windows Sandbox to be installed and enabled. The included real-host probes are interactive:
+
+```bash
+npm run test:windows-sandbox
+npm run test:windows-sandbox-command
+```
+
+The Firecracker+jailer adapter is a hardened foundation only. It is not selectable as a verified security boundary until HR-006 is completed on a suitable Linux/KVM host.
+
+## Tools and safety
+
+The built-in file tools are constrained to `settings.workspaceRoot`:
 
 - `file_list`
 - `file_read`
 - `file_write`
 - `file_delete`
-- `shell_exec`
 
-Writes, deletes, and shell execution require operator approval when approval mode is enabled. File write approvals include byte counts and old/new SHA-256 hashes, and successful write audit entries include a unified diff when the text content is small enough to display safely. Approval decisions are persisted in `.nexusharness/store.json`, are consumed on first use, and are recorded in the audit log.
+`shell_exec` is compatibility-only; `sandbox_exec` is Windows-Sandbox-only. Writes, deletes, and commands require operator approval when approval mode is enabled. Approvals bind writes to byte counts and before/after SHA-256 hashes, are consumed once, and are recorded in the audit log. Small text changes include a unified diff.
+
+Real-path checks reject symbolic-link escapes, workspace-root deletion is prohibited, and files, commands, responses, trees, and tool results are bounded. File reads support `offset` and `limit` paging.
+
+Treat model-generated requests as untrusted even when a stronger execution mode is selected. Review commands, predicted effects, diffs, validation evidence, and MCP schemas before approval.
 
 ## MCP
 
-MCP servers can be added manually or discovered by scanning a localhost port range. The harness uses the official `@modelcontextprotocol/sdk` client with stdio and Streamable HTTP transports, then injects enabled tool schemas into Executor model context. Discovered servers are disabled by default so the operator can inspect them before use.
+MCP servers can be configured over stdio or Streamable HTTP, or discovered over a bounded localhost port range. Discovered servers are disabled until reviewed. Enabled tool schemas are supplied to compatible Executors through the official `@modelcontextprotocol/sdk` client.
 
-## Storage
+MCP is available only in compatibility mode in v2.0. Remote effects cannot be rolled back safely without connector-specific compensation semantics, so MCP is deliberately excluded from transactional modes.
 
-All settings, runtimes, MCP server metadata, memory entries, approvals, run history, and audit logs are stored locally:
+## Local data and control plane
+
+Application settings, runtime metadata, MCP configuration, memory, approvals, run history, execution summaries, and audit logs are stored locally in:
 
 ```text
 .nexusharness/store.json
 ```
 
-Set `NEXUSHARNESS_DATA_DIR` to store this state outside the source tree.
+Set `NEXUSHARNESS_DATA_DIR` to move application state outside the source tree. NexusHarness does not require cloud authentication or send telemetry.
 
-No telemetry, external authentication, or cloud service is used by this app.
+Project work is coordinated through `control/`. Before changing the repository, an agent must read `control/AGENTS.md`, check for overlapping claims, acquire a scoped claim, keep it live, verify its work, and release it with finishing notes. `control/issues/BOARD.md` is the generated project board; archived claims and dated worklogs retain the evidence trail.
 
-## Security Notes
+## Versioning and verification
 
-- Run NexusHarness only on machines and workspaces you control.
-- Keep approval mode enabled for marketplace/customer installs.
-- Model and MCP endpoints are operator-provided and may execute tool calls requested by model output.
-- Shell commands run inside the configured workspace root, but they still execute with the current OS user permissions.
-- Do not expose the API port to untrusted networks.
-- Review MCP tool schemas before enabling servers or tools.
-- Treat model-generated tool calls as untrusted requests; approval mode is the default safety boundary for writes and shell execution.
-
-## Verification
-
-Run:
+NexusHarness follows SemVer. `package.json` is the version source of truth; the lockfile, marketplace manifest, UI, API, build artifacts, changelog, and Git tag are checked for drift.
 
 ```bash
-npm test
-npm run build
+npm run version:check
+npm run release:verify
 ```
 
-Live connector verification requires local services:
+The release gate runs control-plane validation, version checks, strict lint, core tests, both builds, accessibility, consequential workflows, visual regression, performance, production smoke, and package dry-run validation. See `VERIFICATION.md`, `HARDENING_REVIEW.md`, `MIGRATION_V2.md`, and `CHANGELOG.md` for the v2.0 evidence and migration notes.
 
-- Ollama running with at least one pulled model.
-- LM Studio local server enabled if using LM Studio.
-- llama.cpp server or CLI installed if using llama.cpp.
-- MCP servers running locally if testing MCP discovery/tool calls.
+## Known limitations
 
-If these services are absent, the relevant verification step must be reported as blocked by missing local runtime credentials/services rather than faked.
-
-## Buyer-Facing Listing Copy
-
-NexusHarness turns local models into a serious coding agent environment. Connect Ollama, LM Studio, or llama.cpp; assign Planner, Executor, and Critic agents; wire in MCP servers; and run auditable coding workflows against your local workspace. It includes approval gates for file writes and shell commands, persistent retrospectives for self-improvement, local memory, run logs, model management, and a dark operator dashboard. No cloud account, no telemetry, no model lock-in.
-
-## Known Limitations
-
-- Browser UI depends on the local Node API for filesystem and shell execution.
-- MCP behavior depends on server compliance with the SDK-supported stdio or Streamable HTTP transports.
-- Embedding similarity is not bundled; memory retrieval currently uses pinned entries and keyword/task-type matching within the configured memory token budget to avoid adding a fake embedding implementation.
-- Native tool-calling support depends on the selected runtime and model; text-only runtimes can use the documented JSON tool-call fallback.
-- Approval resume re-runs the agent loop; approved risky actions are consumed on first use.
+- Compatibility-mode commands retain the current OS user's authority.
+- Portable transactions are not a hostile-process or network boundary.
+- Windows Sandbox supports the brokered PowerShell surface and available guest capabilities; it is not a promise that Node, Git, or project-specific toolchains exist in the guest.
+- Transactional modes intentionally exclude MCP until explicit remote-effect compensation exists.
+- Firecracker+jailer still requires real Linux/KVM verification under HR-006.
+- Connector behavior depends on operator-provided local services and model capabilities.
+- Memory retrieval uses pinned, task-type, phrase, and keyword matching within a token budget; bundled embedding similarity is outside v2.0.
