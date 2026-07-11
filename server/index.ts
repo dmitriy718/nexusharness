@@ -7,7 +7,7 @@ import { loadStore, saveStore, audit } from "./store.js";
 import { memorySchema, mcpServerSchema, runtimeSchema, settingsSchema, taskSchema } from "./validation.js";
 import { listRuntimeModels, validateRuntimeConnection } from "./runtimeAdapters.js";
 import { discoverMcpServers, listMcpTools } from "./mcpClient.js";
-import { cancelRun, executeRun, isRunActive, startTask } from "./agentLoop.js";
+import { abandonRunTransaction, cancelRun, executeRun, isRunActive, startTask } from "./agentLoop.js";
 import { previewWorkspaceFile, searchWorkspace, workspaceEntries, workspaceTree } from "./localTools.js";
 import type { McpServerConfig } from "./types.js";
 import { buildInfo } from "./version.js";
@@ -319,14 +319,17 @@ app.post("/api/approvals/:id/:decision", asyncRoute(async (req, res) => {
   if (approval.decision !== "pending") return res.status(409).json({ error: "Approval has already been decided." });
   approval.decision = decision as "approved" | "rejected";
   approval.decidedAt = new Date().toISOString();
+  const rejectedRunIds: string[] = [];
   if (approval.decision === "rejected") {
     for (const run of store.runs.filter((item) => item.status === "waiting_approval" && (item.id === approval.runId || item.error?.includes(approval.id)))) {
       run.status = "failed";
       run.error = `Operator rejected ${approval.action}. approvalId=${approval.id}`;
       run.updatedAt = new Date().toISOString();
+      rejectedRunIds.push(run.id);
     }
   }
   await saveStore(store);
+  await Promise.all(rejectedRunIds.map((runId) => abandonRunTransaction(runId, `Operator rejected ${approval.action}.`)));
   const approvalDetails = approval.payload && typeof approval.payload === "object" && !Array.isArray(approval.payload)
     ? { ...approval.payload as Record<string, unknown>, approvalId: approval.id, runId: approval.runId, subtask: approval.subtask }
     : { payload: approval.payload, approvalId: approval.id, runId: approval.runId, subtask: approval.subtask };
