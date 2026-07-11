@@ -102,6 +102,13 @@ suite("production accessibility contract", () => {
     await zoomedPage.evaluate(() => { document.documentElement.style.zoom = "2"; });
     expect(await zoomedPage.evaluate(() => document.body.scrollWidth > window.innerWidth)).toBe(false);
     await zoomed.close();
+
+    const fourHundredPercent = await harness.newContext({ viewport: { width: 320, height: 800 }, deviceScaleFactor: 4, reducedMotion: "reduce" });
+    const fourHundredPage = await fourHundredPercent.newPage();
+    await fourHundredPage.goto(base("/settings/about"), { waitUntil: "networkidle" });
+    expect(await fourHundredPage.evaluate(() => ({ overflow: document.body.scrollWidth > window.innerWidth, cssWidth: window.innerWidth, scale: devicePixelRatio }))).toEqual({ overflow: false, cssWidth: 320, scale: 4 });
+    expect(await fourHundredPage.getByRole("heading", { name: "About" }).count()).toBe(1);
+    await fourHundredPercent.close();
   }, 30_000);
 
   it("honors reduced motion, visible focus, and 44px touch targets", async () => {
@@ -133,6 +140,24 @@ suite("production accessibility contract", () => {
     await expect.poll(() => page!.getByRole("dialog", { name: "Primary navigation" }).count()).toBe(1);
     await page!.keyboard.press("Escape");
     expect(await opener.evaluate((element) => element === document.activeElement)).toBe(true);
+  });
+
+  it("preserves focus and status semantics in forced-colors mode", async () => {
+    const forced = await harness.newContext({ viewport: { width: 1280, height: 800 }, forcedColors: "active", reducedMotion: "reduce" });
+    const forcedPage = await forced.newPage();
+    await forcedPage.goto(base("/dashboard"), { waitUntil: "networkidle" });
+    const runs = forcedPage.getByRole("link", { name: "Runs", exact: true });
+    await runs.focus();
+    const state = await forcedPage.evaluate(() => {
+      const focused = getComputedStyle(document.activeElement!);
+      const statusDot = getComputedStyle(document.querySelector(".status-badge > span")!);
+      return { active: matchMedia("(forced-colors: active)").matches, outline: focused.outlineStyle, outlineWidth: Number.parseFloat(focused.outlineWidth), dotAdjustment: statusDot.forcedColorAdjust };
+    });
+    expect(state.active).toBe(true);
+    expect(state.outline).not.toBe("none");
+    expect(state.outlineWidth).toBeGreaterThanOrEqual(2);
+    expect(state.dotAdjustment).toBe("none");
+    await forced.close();
   });
 });
 

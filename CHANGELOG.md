@@ -25,6 +25,8 @@ All notable NexusHarness changes are documented here. The format follows Keep a 
 - Rendered shared-component interaction tests and 36 reviewed Midnight Prism visual baselines spanning six representative workflows at every required desktop, tablet, and mobile viewport.
 - Measured production performance budgets for shell readiness, layout stability, bounded audit rendering, immediate settings navigation, and draft-safe compact polling.
 - In-product Help and About sections, v1-to-v2 migration/rollback guidance, local install metadata, and isolated production build/API identity smoke verification.
+- Consequential production-workflow checks for one-use approval rejection, failed runtime setup without persistence, and settings draft discard/save behavior.
+- Permanent forced-colors and 400% device-scale accessibility checks, concurrent control-plane collision tests, version-drift repair tests, and an npm package dry-run integrity gate.
 
 ### Changed
 
