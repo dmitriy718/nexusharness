@@ -342,13 +342,13 @@ async function issueRecords() {
   }));
 }
 
-async function advanceLinkedIssues(claim) {
+async function advanceLinkedIssues(claim, requestedStatus) {
   for (const issueId of claim.issues || []) {
     const filePath = path.join(issuesDir, issueId + ".md");
     if (!(await exists(filePath))) continue;
     const content = await readFile(filePath, "utf8");
     const fields = parseIssue(content);
-    const nextStatus = fields.status === "done" ? "done" : "verify";
+    const nextStatus = fields.status === "done" ? "done" : requestedStatus;
     const updated = content
       .replace(/^status:\s*.*$/m, "status: " + escapeYaml(nextStatus))
       .replace(/^updatedAt:\s*.*$/m, "updatedAt: " + escapeYaml(new Date().toISOString()));
@@ -358,6 +358,11 @@ async function advanceLinkedIssues(claim) {
 
 async function releaseCommand(options) {
   const id = requireText(options, "claim");
+  const config = await loadConfig();
+  const issueStatus = options["issue-status"] ? String(options["issue-status"]) : "verify";
+  if (!config.issueStatuses.includes(issueStatus)) {
+    throw new Error("--issue-status must be one of: " + config.issueStatuses.join(", "));
+  }
   const notes = {
     summary: requireText(options, "summary"),
     files: requireText(options, "files"),
@@ -415,7 +420,7 @@ async function releaseCommand(options) {
       ""
     ].join("\n");
     await atomicWrite(destination, document);
-    await advanceLinkedIssues(claim);
+    await advanceLinkedIssues(claim, issueStatus);
     await rm(record.filePath);
     await appendWorklog("release", claim, "- Summary: " + notes.summary + "\n- Verification: " + notes.verification + "\n- Unfinished: " + notes.unfinished);
     console.log("Released " + id + " -> " + path.relative(root, destination));

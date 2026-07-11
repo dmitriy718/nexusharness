@@ -18,7 +18,9 @@ The control plane coordinates all repository work. It prevents overlapping edits
 6. Verify the work.
 7. Release it with complete notes:
 
-       npm run control:release -- --claim CLAIM_ID --summary "SUMMARY" --files "FILES" --verification "COMMANDS AND RESULTS" --worked "WHAT WORKED" --didnt "WHAT DID NOT" --unfinished "REMAINING WORK OR none"
+       npm run control:release -- --claim CLAIM_ID --issue-status verify --summary "SUMMARY" --files "FILES" --verification "COMMANDS AND RESULTS" --worked "WHAT WORKED" --didnt "WHAT DID NOT" --unfinished "REMAINING WORK OR none"
+
+The default linked-issue destination is verify. For a deliberately partial claim, pass --issue-status in_progress or --issue-status ready. A completed issue is never downgraded by a later linked maintenance claim.
 
 ## Stale claims
 
