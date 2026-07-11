@@ -170,6 +170,41 @@ describe("run execution coordinator", () => {
     await restarted.destroy();
     expect(await readFile(join(fixture.root, "replacement.txt"), "utf8")).toBe("replacement\n");
   }, 20_000);
+
+  it("finds and discards an unbound orphan by stable objective ownership", async () => {
+    const fixture = await repository();
+    let id = 0;
+    const options = {
+      runId: "orphaned-run",
+      settings: settings(fixture.root),
+      dataRoot: fixture.data,
+      validationCommands: [commands().pass],
+      brokerAudit: { append: async () => undefined },
+      authorize: async () => undefined,
+      toolAudit: async () => undefined,
+      persist: async () => undefined,
+      id: () => `orphan-record-${++id}`
+    };
+    const orphan = new RunExecutionCoordinator({ ...options, cellIdentity: "lost-before-summary" });
+    await orphan.prepare();
+    await orphan.write("orphaned.txt", "discard me\n");
+
+    const restarted = new RunExecutionCoordinator({ ...options, cellIdentity: "fresh-random-attempt" });
+    const recovered = await restarted.recoverAndDiscardOrphans();
+    expect(recovered).toEqual([
+      expect.objectContaining({
+        spec: expect.objectContaining({ objectiveId: restarted.objectiveId }),
+        cell: expect.objectContaining({ id: orphan.cellId, state: "failed" }),
+        effects: expect.objectContaining({ effects: [expect.objectContaining({ target: "orphaned.txt" })] })
+      })
+    ]);
+    await expect(access(join(fixture.data, "worktrees", orphan.cellId))).rejects.toThrow();
+    await expect(access(join(fixture.root, "orphaned.txt"))).rejects.toThrow();
+
+    await restarted.prepare();
+    await restarted.rollback();
+    await restarted.destroy();
+  }, 20_000);
 });
 
 async function coordinatorFixture(overrides: { authorize?: () => Promise<void>; validationCommands?: string[] } = {}) {
