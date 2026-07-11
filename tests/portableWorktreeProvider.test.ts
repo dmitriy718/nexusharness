@@ -111,6 +111,27 @@ describe("portable transactional worktree provider", () => {
     await expect(provider.execute("cell-1", contract({ cellId: "cell-2" }), lease())).rejects.toThrow("cannot execute from verifying");
   });
 
+  it("runs action admission inside the cell context without changing isolated state on rejection", async () => {
+    let executeCalls = 0;
+    let admittedWorkspace = "";
+    const fixture = await repository({ executor: {
+      async authorize({ workingDirectory }) {
+        admittedWorkspace = workingDirectory;
+        throw new Error("Approval required for file.write.");
+      },
+      async execute({ contract: input }) {
+        executeCalls += 1;
+        return actionReceipt(input.id, input.cellId, "succeeded");
+      }
+    } });
+    const provider = fixture.provider();
+    await provider.prepare(fixture.spec());
+    await expect(provider.authorize("cell-1", contract(), lease())).rejects.toThrow("Approval required");
+    expect(admittedWorkspace).toBe(join(fixture.data, "worktrees", "cell-1"));
+    expect((await provider.snapshot("cell-1", "After rejected admission")).state).toBe("isolated");
+    expect(executeCalls).toBe(0);
+  });
+
   it("creates an observation snapshot without claiming restorable VM state", async () => {
     const fixture = await repository();
     const provider = fixture.provider();

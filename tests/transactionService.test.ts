@@ -103,6 +103,16 @@ describe("transaction service", () => {
     expect(provider.transitions.filter((state) => state === "executing")).toHaveLength(2);
   });
 
+  it("leaves a cell isolated and retryable when action preflight requires operator input", async () => {
+    const provider = new FakeProvider({ authorizationError: new Error("Approval required for file.write.") });
+    const service = transactionService(provider);
+    await service.prepare(spec());
+    await expect(service.execute("cell-1", contract(), lease())).rejects.toThrow("Approval required");
+    expect(service.getSummary("cell-1")).toMatchObject({ state: "isolated", rollback: { available: true } });
+    expect(provider.transitions).not.toContain("executing");
+    expect(provider.executeCalls).toBe(0);
+  });
+
   it("caps receipt count and returns mutation-safe summary copies", async () => {
     const provider = new FakeProvider();
     const service = transactionService(provider, [], 1);
@@ -190,6 +200,7 @@ class FakeProvider implements ExecutionCellProvider {
   readonly commitCalls: string[][] = [];
   destroyed = false;
   maximumConcurrentExecutions = 0;
+  executeCalls = 0;
   private activeExecutions = 0;
   private cell?: ExecutionCell;
   private readonly receipts: ActionReceipt[];
@@ -199,6 +210,7 @@ class FakeProvider implements ExecutionCellProvider {
     receipts?: ActionReceipt[];
     executeDelay?: boolean;
     executeError?: Error;
+    authorizationError?: Error;
   } = {}) {
     this.receipts = [...(options.receipts ?? [receipt()])];
   }
@@ -218,9 +230,16 @@ class FakeProvider implements ExecutionCellProvider {
     return this.cell;
   }
 
+  async authorize(cellId: string, input: ContractedAction, authority: CapabilityLease) {
+    this.requireCell(cellId);
+    if (input.cellId !== cellId || authority.cellId !== cellId) throw new Error("Fake authorization identity mismatch.");
+    if (this.options.authorizationError) throw this.options.authorizationError;
+  }
+
   async execute(cellId: string, input: ContractedAction, _lease: CapabilityLease) {
     void _lease;
     const cell = this.requireCell(cellId);
+    this.executeCalls += 1;
     if (cell.state !== "executing") throw new Error(`Fake provider cannot execute from ${cell.state}.`);
     this.activeExecutions += 1;
     this.maximumConcurrentExecutions = Math.max(this.maximumConcurrentExecutions, this.activeExecutions);

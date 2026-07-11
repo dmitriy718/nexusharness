@@ -38,6 +38,7 @@ import {
 } from "./contracts.js";
 
 export interface PortableActionExecutor {
+  authorize?(input: { cell: ExecutionCell; workingDirectory: string; contract: ContractedAction; lease: CapabilityLease }): Promise<void>;
   execute(input: { cell: ExecutionCell; workingDirectory: string; contract: ContractedAction; lease: CapabilityLease }): Promise<ActionReceipt>;
 }
 
@@ -135,6 +136,20 @@ export class PortableWorktreeProvider implements ExecutionCellProvider {
         if (record.cell.state === "executing") await this.updateState(record, "failed");
         throw error;
       }
+    });
+  }
+
+  async authorize(cellId: string, contract: ContractedAction, lease: CapabilityLease): Promise<void> {
+    await this.initialize();
+    await this.withCellLock(cellId, async () => {
+      const record = await this.readRecord(cellId);
+      if (record.cell.state !== "isolated" && record.cell.state !== "verifying") {
+        throw new Error(`Cell ${cellId} cannot authorize execution from ${record.cell.state}.`);
+      }
+      if (contract.cellId !== cellId || lease.cellId !== cellId || contract.leaseId !== lease.id) {
+        throw new Error("Contract, lease, and portable cell identities do not match.");
+      }
+      await this.options.actionExecutor.authorize?.({ cell: record.cell, workingDirectory: record.worktreePath, contract, lease });
     });
   }
 
