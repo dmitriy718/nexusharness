@@ -2,6 +2,26 @@ import { randomUUID } from "node:crypto";
 import { spawn } from "node:child_process";
 import { access, mkdir, realpath, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
+import {
+  cellSnapshotSchema,
+  cellSpecSchema,
+  executionCellSchema,
+  executionDigest,
+  type ActionReceipt,
+  type CapabilityLease,
+  type CellSpec,
+  type CellState,
+  type CommitReceipt,
+  type ContractedAction,
+  type EffectSet,
+  type ExecutionCell,
+  type ExecutionCellProvider
+} from "./contracts.js";
+import {
+  PortableWorktreeProvider,
+  type PortableActionExecutor,
+  type PortableWorktreeProviderOptions
+} from "./portableWorktreeProvider.js";
 
 export const WINDOWS_SANDBOX_SESSION_QUERY = "$processes = @(Get-Process -Name 'WindowsSandboxRemoteSession' -ErrorAction SilentlyContinue); if ($processes.Count -gt 0) { $processes | Select-Object -ExpandProperty Id }; exit 0";
 
@@ -32,6 +52,82 @@ export interface WindowsSandboxLaunchInput {
   memoryMb?: number;
   timeoutMs?: number;
   signal?: AbortSignal;
+}
+
+export interface WindowsSandboxActionExecutor extends PortableActionExecutor {
+  readonly isolation: "windows-sandbox";
+}
+
+export interface WindowsSandboxProviderOptions extends Omit<PortableWorktreeProviderOptions, "actionExecutor"> {
+  actionExecutor: WindowsSandboxActionExecutor;
+}
+
+export class WindowsSandboxProvider implements ExecutionCellProvider {
+  readonly securityBoundary = true;
+  readonly boundaryDescription = "Actions execute behind the HR-004-verified Windows Sandbox boundary; Git worktree staging provides effect inspection and atomic promotion.";
+  private readonly transactions: PortableWorktreeProvider;
+
+  constructor(options: WindowsSandboxProviderOptions) {
+    if (options.actionExecutor.isolation !== "windows-sandbox") {
+      throw new Error("Windows Sandbox cells require a Windows Sandbox-isolated action executor.");
+    }
+    this.transactions = new PortableWorktreeProvider(options);
+  }
+
+  async prepare(input: CellSpec): Promise<ExecutionCell> {
+    const spec = cellSpecSchema.parse(input);
+    if (spec.provider !== "windows-sandbox") throw new Error(`Windows Sandbox provider cannot prepare ${spec.provider} cells.`);
+    const portableSpec = portableSpecFor(spec);
+    return externalCell(await this.transactions.prepare(portableSpec), spec);
+  }
+
+  async authorize(cellId: string, contract: ContractedAction, lease: CapabilityLease) {
+    await this.transactions.authorize(cellId, contract, lease);
+  }
+
+  execute(cellId: string, contract: ContractedAction, lease: CapabilityLease): Promise<ActionReceipt> {
+    return this.transactions.execute(cellId, contract, lease);
+  }
+
+  async transition(cellId: string, nextState: CellState) {
+    const cell = await this.transactions.transition(cellId, nextState);
+    const { spec } = await this.transactions.inspect(cellId);
+    return externalCell(cell, windowsSpecFor(spec));
+  }
+
+  async snapshot(cellId: string, reason: string) {
+    const snapshot = await this.transactions.snapshot(cellId, reason);
+    const [{ spec, cell }, effects] = await Promise.all([
+      this.transactions.inspect(cellId),
+      this.transactions.diff(cellId)
+    ]);
+    const mappedCell = externalCell(cell, windowsSpecFor(spec));
+    return cellSnapshotSchema.parse({
+      ...snapshot,
+      state: mappedCell.state,
+      stateDigest: executionDigest({ cell: mappedCell, effects })
+    });
+  }
+
+  diff(cellId: string): Promise<EffectSet> {
+    return this.transactions.diff(cellId);
+  }
+
+  commit(cellId: string, expectedBase: string, effectReceiptDigests: string[]): Promise<CommitReceipt> {
+    return this.transactions.commit(cellId, expectedBase, effectReceiptDigests);
+  }
+
+  destroy(cellId: string) {
+    return this.transactions.destroy(cellId);
+  }
+
+  async recover() {
+    const recovered = await this.transactions.recover();
+    return Promise.all(recovered.map(async (cell) => {
+      const { spec } = await this.transactions.inspect(cell.id);
+      return externalCell(cell, windowsSpecFor(spec));
+    }));
+  }
 }
 
 export class WindowsSandboxLauncher {
@@ -176,6 +272,23 @@ export function parseWindowsSandboxJson<T>(content: string): T {
 
 export function parseWindowsSandboxSessionIds(stdout: string) {
   return new Set(stdout.split(/\r?\n/).map((value) => Number(value.trim())).filter((value) => Number.isSafeInteger(value) && value > 0));
+}
+
+function portableSpecFor(spec: CellSpec): CellSpec {
+  return cellSpecSchema.parse({ ...spec, provider: "portable-worktree" });
+}
+
+function windowsSpecFor(spec: CellSpec): CellSpec {
+  return cellSpecSchema.parse({ ...spec, provider: "windows-sandbox" });
+}
+
+function externalCell(cell: ExecutionCell, spec: CellSpec) {
+  return executionCellSchema.parse({
+    ...cell,
+    provider: "windows-sandbox",
+    providerRef: `windows-sandbox:${cell.id}`,
+    specDigest: executionDigest(spec)
+  });
 }
 
 async function existingDirectory(value: string, label: string) {

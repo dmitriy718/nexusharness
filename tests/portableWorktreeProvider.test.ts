@@ -143,6 +143,18 @@ describe("portable transactional worktree provider", () => {
     expect(snapshot.providerSnapshotRef).toBeUndefined();
   });
 
+  it("returns mutation-safe provider records for composed provider identity mapping", async () => {
+    const fixture = await repository();
+    const provider = fixture.provider();
+    await provider.prepare(fixture.spec());
+    const inspection = await provider.inspect("cell-1");
+    inspection.cell.state = "destroyed";
+    inspection.spec.capabilities.write.push("tampered/**");
+    const persisted = await provider.inspect("cell-1");
+    expect(persisted.cell.state).toBe("isolated");
+    expect(persisted.spec.capabilities.write).not.toContain("tampered/**");
+  });
+
   it("promotes a verified cell by fast-forward and then tears down only the owned worktree", async () => {
     const fixture = await repository();
     const provider = fixture.provider();
