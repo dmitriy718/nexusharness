@@ -1909,7 +1909,8 @@
   height: 30px;
 }
 
-.audit-load-more {
+.audit-load-more,
+.run-load-more {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1917,6 +1918,10 @@
   padding: 18px 12px 4px;
   color: var(--faint);
   font-size: 9px;
+}
+
+.run-load-more p {
+  margin: 0;
 }
 
 .audit-inspector {

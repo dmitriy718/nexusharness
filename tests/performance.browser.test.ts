@@ -15,6 +15,12 @@ store.audit = Array.from({ length: 1_500 }, (_, index) => ({
   message: `Bounded performance event ${index}`,
   details: { runId: "run-a11y", target: `src/example-${index}.ts` }
 }));
+const representativeRun = store.runs[0];
+store.runs = [representativeRun, ...Array.from({ length: 1_499 }, (_, index) => ({
+  ...representativeRun,
+  id: `run-perf-${index + 1}`,
+  task: `Bounded historical run ${index + 1}`
+}))];
 let harness: ProductionHarness;
 let context: BrowserContext;
 let page: Page;
@@ -66,6 +72,25 @@ suite("production performance budget", () => {
     await page.getByRole("button", { name: "Load 100 more" }).click();
     expect(await page.locator(".audit-data-table tbody tr").count()).toBe(200);
     console.log("performance:audit", JSON.stringify({ records: 1_500, initialRows: 100, readyMs: Math.round(readyMs) }));
+    expect(readyMs).toBeLessThan(2_500);
+  });
+
+  it("pages 1,500 runs and preserves older deep-link and duplicate workflows", async () => {
+    const started = performance.now();
+    await page.goto(harness.url("/runs"), { waitUntil: "domcontentloaded" });
+    await expect.poll(() => page.locator(".run-list .run-row").count()).toBe(100);
+    await expect.poll(() => page.locator(".run-load-more p").textContent()).toContain("Showing 100 of 1500 runs");
+    const readyMs = performance.now() - started;
+    await page.getByRole("button", { name: "Load 100 more" }).click();
+    await expect.poll(() => page.locator(".run-list .run-row").count()).toBe(200);
+    const older = page.locator(".run-list .run-row").nth(150);
+    const olderTask = (await older.locator(".run-primary strong").textContent())!;
+    await older.click();
+    await expect.poll(() => page.locator(".run-title h1").textContent()).toBe(olderTask);
+    expect(await page.getByText("Run not found").count()).toBe(0);
+    await page.getByRole("link", { name: "Duplicate" }).click();
+    await expect.poll(() => page.getByRole("textbox", { name: "Task" }).inputValue()).toBe(olderTask);
+    console.log("performance:runs", JSON.stringify({ records: 1_500, initialRows: 100, readyMs: Math.round(readyMs), olderDeepLink: true, olderDuplicate: true }));
     expect(readyMs).toBeLessThan(2_500);
   });
 

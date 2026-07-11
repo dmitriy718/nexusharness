@@ -131,6 +131,20 @@ export type Store = {
   runs: TaskRun[];
 };
 
+export type RunHistoryPage = {
+  items: TaskRun[];
+  total: number;
+  offset: number;
+  limit: number;
+  hasMore: boolean;
+};
+
+export type RunDetailRecord = {
+  run: TaskRun;
+  audit: AuditEvent[];
+  approvals: Approval[];
+};
+
 export type BuildHealth = {
   status: string;
   version: string;
