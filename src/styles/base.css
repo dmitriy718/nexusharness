@@ -2,6 +2,20 @@
   box-sizing: border-box;
 }
 
+code,
+pre,
+.page-detail,
+.inline-alert,
+.empty-state,
+.memory-excerpt {
+  overflow-wrap: anywhere;
+}
+
+img,
+svg {
+  max-width: 100%;
+}
+
 html {
   min-width: 320px;
   background: var(--canvas);

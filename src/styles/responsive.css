@@ -481,6 +481,24 @@
     flex-direction: column;
   }
 
+  .global-error {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .global-error > span {
+    flex-basis: calc(100% - 34px);
+  }
+
+  .global-error > div {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .live-state {
+    display: none;
+  }
+
   .assignment-savebar .button {
     flex: 1;
   }

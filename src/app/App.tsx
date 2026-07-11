@@ -37,7 +37,7 @@ export function App() {
         <p className="eyebrow">Local API unavailable</p>
         <h1>NexusHarness could not connect</h1>
         <p>{error || "Start the API, then retry the connection."}</p>
-        <button className="button primary" onClick={() => void refresh()}>Retry connection</button>
+        <button className="button primary" onClick={() => void refresh().catch(() => undefined)}>Retry connection</button>
       </div>
     );
   }

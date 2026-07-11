@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { AlertTriangle, Check, Cpu, Database, FolderCode, Info, Palette, RotateCcw, Save, Settings, ShieldCheck, SlidersHorizontal, Workflow } from "lucide-react";
 import type { LayoutMode, SettingsShape } from "../../api/types";
@@ -20,9 +20,18 @@ export function SettingsPage() {
   const { section } = useParams();
   const { store, saveSettings } = useHarness();
   const [draft, setDraft] = useState<SettingsShape | null>(store?.settings ?? null);
+  const savedSettingsRef = useRef(JSON.stringify(store?.settings ?? null));
   const [saving, setSaving] = useState(false);
   const [localError, setLocalError] = useState("");
-  useEffect(() => { if (store) setDraft(store.settings); }, [store]);
+  useEffect(() => {
+    if (!store) return;
+    const nextSaved = JSON.stringify(store.settings);
+    setDraft((current) => {
+      const wasClean = current === null || JSON.stringify(current) === savedSettingsRef.current;
+      savedSettingsRef.current = nextSaved;
+      return wasClean ? store.settings : current;
+    });
+  }, [store?.settings]);
   const dirty = useMemo(() => Boolean(store && draft && JSON.stringify(store.settings) !== JSON.stringify(draft)), [draft, store]);
   const active = sections.some((item) => item.id === section) ? section as SettingsSectionId : "workspace";
   const errors = draft ? validateSettings(draft) : {};

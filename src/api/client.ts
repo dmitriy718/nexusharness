@@ -29,5 +29,15 @@ export async function api<T>(url: string, init?: RequestInit): Promise<T> {
 }
 
 export function errorMessage(error: unknown): string {
+  if (error instanceof ApiError && error.payload && typeof error.payload === "object") {
+    const raw = (error.payload as { error?: unknown }).error;
+    if (Array.isArray(raw)) return raw.map((issue) => {
+      if (!issue || typeof issue !== "object") return String(issue);
+      const value = issue as { path?: unknown[]; message?: unknown };
+      const path = Array.isArray(value.path) && value.path.length ? `${value.path.join(".")}: ` : "";
+      return `${path}${String(value.message ?? "Invalid value")}`;
+    }).join(" · ");
+    if (typeof raw === "string") return raw;
+  }
   return error instanceof Error ? error.message : String(error);
 }

@@ -8,6 +8,8 @@ import {
   ChevronLeft,
   Command,
   Cpu,
+  Clipboard,
+  CircleAlert,
   FileClock,
   FolderTree,
   Gauge,
@@ -16,9 +18,11 @@ import {
   Settings,
   ShieldCheck,
   Sparkles,
+  RotateCcw,
   X
 } from "lucide-react";
 import { useHarness } from "./StoreProvider";
+import { failureDetails, freshnessLabel } from "../features/feedback/feedbackModel";
 
 const destinations = [
   { to: "/dashboard", label: "Overview", icon: Gauge },
@@ -34,13 +38,14 @@ const destinations = [
 ];
 
 export function AppShell() {
-  const { store, health, error, clearError, notices, dismissNotice, refreshing } = useHarness();
+  const { store, health, error, failure, clearError, notices, dismissNotice, refreshing, refresh, connectionState, lastSyncedAt } = useHarness();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const location = useLocation();
   const pending = store?.approvals.filter((item) => item.decision === "pending").length ?? 0;
   const activeRun = store?.runs.find((run) => run.status === "running" || run.status === "waiting_approval");
   const versionMismatch = health && health.version !== __NEXUSHARNESS_BUILD__.version;
+  const failureInfo = error ? failureDetails(failure ?? new Error(error)) : null;
 
   const closeMobile = () => setMobileOpen(false);
 
@@ -75,7 +80,7 @@ export function AppShell() {
           ))}
         </nav>
         <div className="nav-footer">
-          <div className="local-chip"><span className={health ? "online" : "offline"} />{collapsed ? "" : health ? "Local API online" : "API offline"}</div>
+          <div className={`local-chip state-${connectionState}`}><span />{collapsed ? "" : connectionLabel(connectionState)}</div>
           <button className="collapse-button" onClick={() => setCollapsed((value) => !value)}>
             {collapsed ? <ChevronLeft className="flip" /> : <PanelLeftClose />}
             <span>{collapsed ? "Expand" : "Collapse"}</span>
@@ -92,7 +97,7 @@ export function AppShell() {
           </div>
           <div className="context-actions">
             {activeRun && <NavLink className="live-run-chip" to={"/runs/" + activeRun.id}><span />{activeRun.phase} · iteration {activeRun.iteration}</NavLink>}
-            {refreshing && <span className="sync-label" role="status">Syncing</span>}
+            <span className={`live-state state-${connectionState}`} role="status"><span />{refreshing ? "Syncing…" : connectionState === "online" ? freshnessLabel(lastSyncedAt) : connectionLabel(connectionState)}</span>
             <button className="command-button" aria-label="Open command palette (coming in v2)" title="Command palette"><Command /><kbd>⌘K</kbd></button>
             <NavLink to="/approvals" className={"approval-button" + (pending ? " has-attention" : "")}>
               <ShieldCheck /> <span>{pending ? pending + " pending" : "No approvals"}</span>
@@ -105,10 +110,11 @@ export function AppShell() {
             Client v{__NEXUSHARNESS_BUILD__.version} and API v{health.version} do not match. Rebuild and restart NexusHarness.
           </div>
         )}
-        {error && (
-          <div className="global-error" role="alert">
-            <span><strong>Connection issue.</strong> {error}</span>
-            <button onClick={clearError}>Dismiss</button>
+        {failureInfo && (
+          <div className={`global-error error-${failureInfo.category}`} role="alert">
+            <CircleAlert />
+            <span><strong>{failureInfo.title}</strong><small>{failureInfo.message}</small></span>
+            <div>{failureInfo.retryable && <button className="button secondary" onClick={() => void refresh().catch(() => undefined)}><RotateCcw />Retry</button>}<button className="button quiet" onClick={() => void navigator.clipboard.writeText(failureInfo.technical)}><Clipboard />Copy details</button><button className="icon-button" aria-label="Dismiss error" onClick={clearError}><X /></button></div>
           </div>
         )}
 
@@ -119,13 +125,21 @@ export function AppShell() {
 
       <div className="toast-region" aria-live="polite" aria-label="Notifications">
         {notices.map((notice) => (
-          <button key={notice.id} className={"toast toast-" + notice.tone} onClick={() => dismissNotice(notice.id)}>
-            <span>{notice.message}</span><X aria-hidden="true" />
-          </button>
+          <div key={notice.id} className={"toast toast-" + notice.tone} role="status">
+            <span>{notice.message}</span><button aria-label="Dismiss notification" onClick={() => dismissNotice(notice.id)}><X aria-hidden="true" /></button>
+          </div>
         ))}
       </div>
     </div>
   );
+}
+
+function connectionLabel(state: "booting" | "online" | "reconnecting" | "stale" | "offline") {
+  if (state === "online") return "Local API online";
+  if (state === "reconnecting") return "Reconnecting…";
+  if (state === "stale") return "Data may be stale";
+  if (state === "booting") return "Connecting…";
+  return "Local API offline";
 }
 
 function Brand({ compact = false }: { compact?: boolean }) {
