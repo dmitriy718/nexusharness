@@ -1,0 +1,213 @@
+import { execFile } from "node:child_process";
+import { createHash } from "node:crypto";
+import { lstat, mkdir, readFile, readdir, realpath, rm, stat, writeFile } from "node:fs/promises";
+import path from "node:path";
+import { nanoid } from "nanoid";
+import { createTwoFilesPatch } from "diff";
+import type { ApprovalRequest, Settings } from "./types.js";
+import { audit, loadStore, saveStore } from "./store.js";
+
+export function resolveInside(root: string, target: string): string {
+  if (path.isAbsolute(target)) {
+    throw new Error(`Path escapes workspace root: ${target}. Use a path relative to the configured workspace root (${path.resolve(root)}).`);
+  }
+  const resolvedRoot = path.resolve(root);
+  const resolvedTarget = path.resolve(resolvedRoot, target);
+  if (resolvedTarget !== resolvedRoot && !resolvedTarget.startsWith(`${resolvedRoot}${path.sep}`)) {
+    throw new Error(`Path escapes workspace root: ${target}`);
+  }
+  return resolvedTarget;
+}
+
+function isInside(root: string, target: string): boolean {
+  const relative = path.relative(root, target);
+  return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative));
+}
+
+async function resolveInsideRealWorkspace(root: string, target: string): Promise<string> {
+  const resolvedTarget = resolveInside(root, target);
+  const resolvedRoot = path.resolve(root);
+  const realRoot = await realpath(resolvedRoot);
+  let existing = resolvedTarget;
+  while (true) {
+    try {
+      await lstat(existing);
+      break;
+    } catch (error: any) {
+      if (error.code !== "ENOENT") throw error;
+      const parent = path.dirname(existing);
+      if (parent === existing || !isInside(resolvedRoot, parent)) {
+        throw new Error(`Cannot resolve workspace path safely: ${target}`);
+      }
+      existing = parent;
+    }
+  }
+  const realExisting = await realpath(existing);
+  if (!isInside(realRoot, realExisting)) {
+    throw new Error(`Path escapes workspace root through a symbolic link: ${target}`);
+  }
+  return resolvedTarget;
+}
+
+async function requireApproval(settings: Settings, action: string, risk: ApprovalRequest["risk"], payload: unknown): Promise<void> {
+  if (!settings.approvalMode || risk === "read") return;
+  const store = await loadStore();
+  const payloadJson = JSON.stringify(payload);
+  const matches = store.approvals.filter((item) =>
+    item.action === action &&
+    item.risk === risk &&
+    JSON.stringify(item.payload) === payloadJson
+  );
+  const pending = matches.find((item) => item.decision === "pending");
+  if (pending) throw new Error(`Approval required for ${action}. approvalId=${pending.id}`);
+  const approved = matches.find((item) => item.decision === "approved" && !item.usedAt);
+  if (approved) {
+    approved.usedAt = new Date().toISOString();
+    await saveStore(store);
+    await audit({ actor: "system", action: "approval.consume", risk, status: "ok", message: action, details: { approvalId: approved.id } });
+    return;
+  }
+  const latest = matches[0];
+  if (latest?.decision === "rejected") throw new Error(`Approval rejected for ${action}. approvalId=${latest.id}`);
+  const request: ApprovalRequest = {
+    id: nanoid(),
+    createdAt: new Date().toISOString(),
+    actor: "executor",
+    action,
+    risk,
+    payload,
+    decision: "pending"
+  };
+  store.approvals.unshift(request);
+  await saveStore(store);
+  await audit({ actor: "executor", action, risk, status: "pending", message: "Approval required.", details: { approvalId: request.id } });
+  throw new Error(`Approval required for ${action}. approvalId=${request.id}`);
+}
+
+export function contentSha256(content: string): string {
+  return createHash("sha256").update(content).digest("hex");
+}
+
+function safePatch(relativePath: string, before: string | null, after: string): string | null {
+  const beforeText = before ?? "";
+  if (Buffer.byteLength(beforeText) + Buffer.byteLength(after) > 250_000) return null;
+  return createTwoFilesPatch(`${relativePath}:before`, `${relativePath}:after`, beforeText, after, "", "", { context: 3 });
+}
+
+export async function listFiles(settings: Settings, relativePath = ".") {
+  const root = await resolveInsideRealWorkspace(settings.workspaceRoot, relativePath);
+  const entries = (await readdir(root, { withFileTypes: true })).sort((a, b) => a.name.localeCompare(b.name)).slice(0, 2000);
+  await audit({ actor: "executor", action: "file.list", risk: "read", status: "ok", message: relativePath });
+  return entries.map((entry) => ({ name: entry.name, type: entry.isDirectory() ? "directory" : "file" }));
+}
+
+export async function readWorkspaceFile(settings: Settings, relativePath: string, options: { offset?: number; limit?: number } = {}) {
+  const filePath = await resolveInsideRealWorkspace(settings.workspaceRoot, relativePath);
+  const fileStat = await stat(filePath);
+  if (!fileStat.isFile()) throw new Error(`Path is not a regular file: ${relativePath}`);
+  if (fileStat.size > 2 * 1024 * 1024) {
+    throw new Error(`File is too large for model context (${fileStat.size} bytes; limit is 2097152): ${relativePath}`);
+  }
+  const content = await readFile(filePath, "utf8");
+  const requestedOffset = Number(options.offset ?? 0);
+  const requestedLimit = Number(options.limit ?? 40_000);
+  const offset = Number.isFinite(requestedOffset) ? Math.max(0, Math.trunc(requestedOffset)) : 0;
+  const limit = Number.isFinite(requestedLimit) ? Math.min(100_000, Math.max(1, Math.trunc(requestedLimit))) : 40_000;
+  const selected = content.slice(offset, offset + limit);
+  await audit({ actor: "executor", action: "file.read", risk: "read", status: "ok", message: relativePath, details: { offset, returnedCharacters: selected.length, totalCharacters: content.length, truncated: offset + selected.length < content.length } });
+  return selected;
+}
+
+export async function writeWorkspaceFile(settings: Settings, relativePath: string, content: string) {
+  if (Buffer.byteLength(content) > 5 * 1024 * 1024) throw new Error("File write exceeds the 5 MiB safety limit.");
+  const filePath = await resolveInsideRealWorkspace(settings.workspaceRoot, relativePath);
+  let previousContent: string | null = null;
+  try {
+    previousContent = await readFile(filePath, "utf8");
+  } catch (error: any) {
+    if (error.code !== "ENOENT") throw error;
+  }
+  await requireApproval(settings, "file.write", "write", {
+    relativePath,
+    bytes: Buffer.byteLength(content),
+    previousSha256: previousContent === null ? null : contentSha256(previousContent),
+    nextSha256: contentSha256(content)
+  });
+  await mkdir(path.dirname(filePath), { recursive: true });
+  await writeFile(filePath, content, "utf8");
+  const details = {
+    previousSha256: previousContent === null ? null : contentSha256(previousContent),
+    nextSha256: contentSha256(content),
+    previousBytes: previousContent === null ? null : Buffer.byteLength(previousContent),
+    nextBytes: Buffer.byteLength(content),
+    diff: safePatch(relativePath, previousContent, content)
+  };
+  await audit({ actor: "executor", action: "file.write", risk: "write", status: "ok", message: relativePath, details });
+  return { path: relativePath, ...details };
+}
+
+export async function deleteWorkspacePath(settings: Settings, relativePath: string) {
+  const filePath = await resolveInsideRealWorkspace(settings.workspaceRoot, relativePath);
+  if (filePath === path.resolve(settings.workspaceRoot)) {
+    throw new Error("Refusing to delete the configured workspace root.");
+  }
+  await requireApproval(settings, "file.delete", "write", { relativePath });
+  await rm(filePath, { recursive: true, force: false });
+  await audit({ actor: "executor", action: "file.delete", risk: "write", status: "ok", message: relativePath });
+  return { path: relativePath };
+}
+
+export async function runShell(settings: Settings, command: string, signal?: AbortSignal) {
+  if (!command.trim()) throw new Error("Shell command cannot be empty.");
+  if (command.length > 100_000) throw new Error("Shell command exceeds the 100,000 character safety limit.");
+  await requireApproval(settings, "shell.exec", "execute", { command });
+  const cwd = await realpath(path.resolve(settings.workspaceRoot));
+  const shell = settings.shellPath;
+  const shellName = path.basename(shell).toLowerCase();
+  const args = shellName.includes("powershell") || shellName.includes("pwsh")
+    ? ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", command]
+    : shellName === "cmd.exe" || shellName === "cmd"
+      ? ["/d", "/s", "/c", command]
+      : shellName.includes("bash") || shellName.includes("zsh")
+        ? ["-lc", command]
+        : ["-c", command];
+  const result = await new Promise<{ stdout: string; stderr: string; code: number | null }>((resolve) => {
+    const child = execFile(shell, args, { cwd, timeout: 120000, maxBuffer: 1024 * 1024 * 10, signal }, (error, stdout, stderr) => {
+      const code = error
+        ? (typeof (error as any).code === "number" ? (error as any).code : 1)
+        : 0;
+      resolve({ stdout, stderr, code });
+    });
+    child.on("error", (error) => resolve({ stdout: "", stderr: error.message, code: 1 }));
+  });
+  await audit({
+    actor: "executor",
+    action: "shell.exec",
+    risk: "execute",
+    status: result.code === 0 ? "ok" : "error",
+    message: command,
+    details: result
+  });
+  if (result.code !== 0) {
+    throw new Error(`Command failed with exit code ${result.code}: ${command}\n${result.stderr || result.stdout}`);
+  }
+  return result;
+}
+
+export async function workspaceTree(settings: Settings, relativePath = ".", depth = 2, budget = { remaining: 1000 }): Promise<any[]> {
+  if (budget.remaining <= 0) return [];
+  const current = resolveInside(settings.workspaceRoot, relativePath);
+  const s = await stat(current);
+  if (!s.isDirectory()) return [];
+  const entries = (await readdir(current, { withFileTypes: true })).sort((a, b) => a.name.localeCompare(b.name)).slice(0, Math.min(200, budget.remaining));
+  budget.remaining -= entries.length;
+  return Promise.all(entries.map(async (entry) => {
+    const childRel = path.join(relativePath, entry.name);
+    return {
+      name: entry.name,
+      path: childRel,
+      type: entry.isDirectory() ? "directory" : "file",
+      children: entry.isDirectory() && depth > 0 ? await workspaceTree(settings, childRel, depth - 1, budget) : []
+    };
+  }));
+}

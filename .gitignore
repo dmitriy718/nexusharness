@@ -1,0 +1,7 @@
+node_modules/
+dist/
+dist-server/
+.nexusharness/
+.nexusharness-dev.*.log
+*.log
+.env
