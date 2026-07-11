@@ -12,6 +12,8 @@ export type Runtime = {
   timeoutMs: number;
 };
 
+export type RuntimeKind = "ollama" | "lmstudio" | "llamacpp-server" | "llamacpp-cli";
+
 export type Model = {
   id: string;
   runtimeId: string;
@@ -19,6 +21,12 @@ export type Model = {
   contextWindow?: number;
   supportsTools: boolean;
   quantization?: string;
+};
+
+export type RuntimeTestResult = {
+  checkedAt: string;
+  latencyMs: number;
+  models: Model[];
 };
 
 export type McpTool = {
