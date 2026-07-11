@@ -25,7 +25,7 @@ suite("production accessibility contract", () => {
     const routes = [
       "/onboarding", "/dashboard", "/runs", "/runs/run-a11y", "/agents", "/models", "/tools",
       "/workspace", "/memory", "/approvals", "/audit", "/settings/workspace", "/settings/execution",
-      "/settings/safety", "/settings/integrations", "/settings/memory", "/settings/appearance", "/settings/advanced"
+      "/settings/safety", "/settings/integrations", "/settings/memory", "/settings/appearance", "/settings/help", "/settings/about"
     ];
     for (const route of routes) {
       await open(route);

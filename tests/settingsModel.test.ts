@@ -15,6 +15,8 @@ describe("settings workflow model", () => {
     expect(dirtySettingSections(settings, draft)).toEqual(["safety", "memory"]);
     expect(sectionHasChanges(settings, draft, "safety")).toBe(true);
     expect(sectionHasChanges(settings, draft, "workspace")).toBe(false);
+    expect(sectionHasChanges(settings, draft, "help")).toBe(false);
+    expect(sectionHasChanges(settings, draft, "about")).toBe(false);
   });
 
   it("restores only the requested section defaults", () => {

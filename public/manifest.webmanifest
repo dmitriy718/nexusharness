@@ -1,0 +1,17 @@
+{
+  "name": "NexusHarness",
+  "short_name": "Nexus",
+  "description": "Local-first mission control for auditable AI coding agents.",
+  "start_url": "/dashboard",
+  "display": "standalone",
+  "background_color": "#070a12",
+  "theme_color": "#070a12",
+  "icons": [
+    {
+      "src": "/nexus-mark.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

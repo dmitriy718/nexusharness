@@ -4,6 +4,8 @@ All notable NexusHarness changes are documented here. The format follows Keep a 
 
 ## [Unreleased]
 
+## [2.0.0-beta.1] - 2026-07-11
+
 ### Added
 
 - Midnight Prism design tokens, local brand mark, responsive routed shell, and accessible navigation foundation.
@@ -22,6 +24,7 @@ All notable NexusHarness changes are documented here. The format follows Keep a 
 - A production accessibility gate that scans every major route and populated workflow state with axe, plus checks semantic contrast, keyboard behavior, focus containment and return, 320 px reflow, 200% zoom, reduced motion, and touch targets.
 - Rendered shared-component interaction tests and 36 reviewed Midnight Prism visual baselines spanning six representative workflows at every required desktop, tablet, and mobile viewport.
 - Measured production performance budgets for shell readiness, layout stability, bounded audit rendering, immediate settings navigation, and draft-safe compact polling.
+- In-product Help and About sections, v1-to-v2 migration/rollback guidance, local install metadata, and isolated production build/API identity smoke verification.
 
 ### Changed
 
@@ -55,6 +58,7 @@ All notable NexusHarness changes are documented here. The format follows Keep a 
 
 - Initial local-first harness with task execution, local runtimes, MCP, workspace tools, memory, approvals, audit logs, and operator settings.
 
-[Unreleased]: https://github.com/dmitriy718/mir/compare/v2.0.0-alpha.1...HEAD
+[Unreleased]: https://github.com/dmitriy718/mir/compare/v2.0.0-beta.1...HEAD
+[2.0.0-beta.1]: https://github.com/dmitriy718/mir/compare/v2.0.0-alpha.1...v2.0.0-beta.1
 [2.0.0-alpha.1]: https://github.com/dmitriy718/mir/compare/4c6c364...v2.0.0-alpha.1
 [0.1.0]: https://github.com/dmitriy718/mir/releases/tag/v0.1.0
