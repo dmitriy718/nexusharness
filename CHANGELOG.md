@@ -4,6 +4,10 @@ All notable NexusHarness changes are documented here. The format follows Keep a 
 
 ## [Unreleased]
 
+_No unreleased changes._
+
+## [2.0.0] - 2026-07-11
+
 ### Added
 
 - Began the v2.1 transactional execution foundation with versioned objectives, action contracts, capability leases, effect receipts, cell specifications, commit receipts, deterministic digests, and finite lifecycle validation.
@@ -98,7 +102,8 @@ All notable NexusHarness changes are documented here. The format follows Keep a 
 
 - Initial local-first harness with task execution, local runtimes, MCP, workspace tools, memory, approvals, audit logs, and operator settings.
 
-[Unreleased]: https://github.com/dmitriy718/mir/compare/v2.0.0-beta.1...HEAD
+[Unreleased]: https://github.com/dmitriy718/mir/compare/v2.0.0...HEAD
+[2.0.0]: https://github.com/dmitriy718/mir/compare/v2.0.0-beta.1...v2.0.0
 [2.0.0-beta.1]: https://github.com/dmitriy718/mir/compare/v2.0.0-alpha.1...v2.0.0-beta.1
 [2.0.0-alpha.1]: https://github.com/dmitriy718/mir/compare/4c6c364...v2.0.0-alpha.1
 [0.1.0]: https://github.com/dmitriy718/mir/releases/tag/v0.1.0
