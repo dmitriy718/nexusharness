@@ -3,7 +3,9 @@ import {
   InMemoryLeaseUseStore,
   InMemoryReceiptChainStore,
   type BrokerAuditSink,
-  type EffectObservation
+  type EffectObservation,
+  type LeaseUseStore,
+  type ReceiptChainStore
 } from "./broker.js";
 import { executionDigest, type CapabilityLease, type ContractedAction, type ObservedEffect } from "./contracts.js";
 import type { PortableActionExecutor } from "./portableWorktreeProvider.js";
@@ -35,6 +37,8 @@ export interface FileActionExecutorOptions {
   authorize?: LocalApprovalAuthorizer;
   toolAudit?: LocalAuditWriter;
   brokerAudit: BrokerAuditSink;
+  leases?: LeaseUseStore;
+  receipts?: ReceiptChainStore;
   now?: () => Date;
   id?: () => string;
 }
@@ -50,8 +54,8 @@ export class PortableFileActionExecutor implements PortableActionExecutor {
       mode: "enforced",
       policy: { evaluate: async ({ contract, lease }) => this.policy(contract, lease) },
       observer: { observe: (cellId, operation) => this.observe(cellId, operation) },
-      leases: new InMemoryLeaseUseStore(),
-      receipts: new InMemoryReceiptChainStore(),
+      leases: options.leases ?? new InMemoryLeaseUseStore(),
+      receipts: options.receipts ?? new InMemoryReceiptChainStore(),
       audit: options.brokerAudit,
       ...(options.now ? { now: options.now } : {}),
       ...(options.id ? { id: options.id } : {})
