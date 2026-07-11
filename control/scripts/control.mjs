@@ -132,13 +132,13 @@ async function withLock(callback) {
     }
   }
   if (!acquired) throw new Error("Timed out waiting for the claim mutex.");
+  const resolved = path.resolve(lockDir);
+  if (!resolved.startsWith(path.resolve(controlDir) + path.sep)) {
+    throw new Error("Refusing to use lock outside control directory: " + resolved);
+  }
   try {
     return await callback();
   } finally {
-    const resolved = path.resolve(lockDir);
-    if (!resolved.startsWith(path.resolve(controlDir) + path.sep)) {
-      throw new Error("Refusing to remove lock outside control directory: " + resolved);
-    }
     await rm(resolved, { recursive: true, force: true });
   }
 }
@@ -347,8 +347,10 @@ async function advanceLinkedIssues(claim) {
     const filePath = path.join(issuesDir, issueId + ".md");
     if (!(await exists(filePath))) continue;
     const content = await readFile(filePath, "utf8");
+    const fields = parseIssue(content);
+    const nextStatus = fields.status === "done" ? "done" : "verify";
     const updated = content
-      .replace(/^status:\s*.*$/m, "status: " + escapeYaml("verify"))
+      .replace(/^status:\s*.*$/m, "status: " + escapeYaml(nextStatus))
       .replace(/^updatedAt:\s*.*$/m, "updatedAt: " + escapeYaml(new Date().toISOString()));
     await atomicWrite(filePath, updated);
   }
