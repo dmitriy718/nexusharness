@@ -4,6 +4,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
+import type { Store } from "../src/api/types";
 
 export const root = resolve(import.meta.dirname, "..");
 const dist = join(root, "dist");
@@ -16,9 +17,11 @@ export class ProductionHarness {
   private appServer?: Server;
   private appPort = 0;
 
+  constructor(private readonly store: unknown = fixture()) {}
+
   async start() {
     this.dataDir = mkdtempSync(join(tmpdir(), "nexusharness-browser-"));
-    writeFileSync(join(this.dataDir, "store.json"), JSON.stringify(fixture(), null, 2));
+    writeFileSync(join(this.dataDir, "store.json"), JSON.stringify(this.store, null, 2));
     const apiPort = await availablePort();
     this.apiProcess = spawn(process.execPath, ["dist-server/server/index.js"], {
       cwd: root,
@@ -86,7 +89,7 @@ function createAppServer(targetPort: number) {
   });
 }
 
-function fixture() {
+export function fixture(): Store {
   return {
     settings: { workspaceRoot: root, layout: "chat", maxIterations: 5, maxParallelExecutors: 3, criticThreshold: 7, approvalMode: true, shellPath: "powershell.exe", testCommand: "npm test", lintCommand: "npm run lint", mcpAutoDiscovery: true, mcpPortStart: 3000, mcpPortEnd: 3499, memoryTokenBudget: 2000, agentModels: { planner: "Local Coder", executor: "Local Coder", critic: "Local Coder" } },
     runtimes: [{ id: "runtime-a11y", name: "Local runtime", kind: "ollama", endpoint: "http://127.0.0.1:1", timeoutMs: 1000 }],
