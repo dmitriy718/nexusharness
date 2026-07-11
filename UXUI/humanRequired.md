@@ -4,13 +4,7 @@ This file records work that requires the project owner and cannot be completed s
 
 ## Current blocking actions
 
-### HR-007 — Resolve owner-held worktree changes for the v2.0.0 tag
-
-- **Status:** Owner decision required; blocks only the clean release tag.
-- **Owner action:** Decide whether the existing edits in `README.md`, `VERIFICATION.md`, and `HARDENING_REVIEW.md` should be discarded or replaced with current final-release documentation, and authorize removal or retention outside Git of `UXUI/capture.png` and `UXUI/capture2.png`.
-- **Evidence:** The three documents currently describe an earlier 22-test, non-sandbox build and conflict with the verified 249-test Windows Sandbox-capable release. The two captures are historical error screenshots and remain untracked.
-- **Why human input is required:** These files predate and are outside the agent's owned claims. The agent will not silently stage, rewrite, or delete owner-held changes.
-- **Blocks:** A clean Git worktree and creation/push of tag `v2.0.0`.
+None.
 
 ## Scheduled owner checkpoints
 
@@ -23,6 +17,13 @@ This file records work that requires the project owner and cannot be completed s
 - **Blocks:** Promoting the Firecracker launcher foundation to a verified Linux security boundary and complete execution-cell provider.
 
 ## Completed actions
+
+### HR-007 — Resolve owner-held worktree changes for the v2.0.0 tag
+
+- **Status:** Authorized by the owner on 2026-07-11.
+- **Evidence:** The owner replied `authorized` after the agent proposed replacing `README.md`, `VERIFICATION.md`, and `HARDENING_REVIEW.md` with current v2.0.0 documentation and removing the two historical diagnostic captures.
+- **Decision:** Replace the stale pre-v2 documents and remove `UXUI/capture.png` and `UXUI/capture2.png`.
+- **Result:** The owner-held worktree blocker is resolved. The documents now describe the verified v2 execution modes, release matrix, and remaining limits; both captures were removed. The final clean-tree verification and tag workflow are authorized.
 
 ### HR-003 — v2.0.0 release-candidate approval
 
