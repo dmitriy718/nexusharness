@@ -1,0 +1,37 @@
+{
+  "name": "NexusHarness",
+  "slug": "nexusharness-local-ai-coding-harness",
+  "version": "0.1.0",
+  "category": "Developer Tools",
+  "deployment": "local-first",
+  "supportedRuntimes": ["Ollama", "LM Studio", "llama.cpp server", "llama.cpp CLI"],
+  "supportedMcpTransports": ["MCP Streamable HTTP", "MCP stdio"],
+  "permissions": [
+    "Read, write, and delete files inside the configured workspace root",
+    "Execute shell commands inside the configured workspace root",
+    "Connect to operator-configured localhost model and MCP endpoints"
+  ],
+  "privacy": {
+    "cloudDependency": false,
+    "telemetry": false,
+    "externalAuth": false,
+    "dataStorage": ".nexusharness/store.json on the local machine"
+  },
+  "pricingSuggestions": [
+    {
+      "tier": "Community",
+      "price": "Free",
+      "positioning": "Single workspace, local runtimes, manual MCP configuration."
+    },
+    {
+      "tier": "Pro",
+      "price": "$19-29 per seat/month or $149 one-time",
+      "positioning": "Advanced run history, richer audit exports, team policy templates for local installs."
+    },
+    {
+      "tier": "Studio",
+      "price": "$499-999 one-time commercial license",
+      "positioning": "Commercial redistribution rights, priority connector updates, marketplace support."
+    }
+  ]
+}
