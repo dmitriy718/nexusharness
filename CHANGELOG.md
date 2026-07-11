@@ -15,6 +15,7 @@ All notable NexusHarness changes are documented here. The format follows Keep a 
 - Guided runtime setup that tests without persistence, reviews discovered models before save, reports session health/latency, exposes searchable capabilities, and provides explicit-save agent assignments with tool compatibility guidance.
 - Bounded MCP discovery with real chunk progress and cancellation, HTTP/stdio guided setup, inspected server details, searchable risk-classified tools, JSON schemas, protected bulk/per-tool toggles, and a separate local-tool policy view.
 - Safe lazy workspace explorer with bounded server search, keyboard expansion, breadcrumbs, file metadata, line-numbered/binary-aware previews, explicit symlink blocking, path copy, parent reveal, and run-draft context handoff.
+- Searchable memory knowledge base with kind/task/source facets, pin-first sorting, complete source-aware editing, provenance timestamps, distinct retrospectives, explicit save state, and ten-second delete undo.
 
 ### Changed
 

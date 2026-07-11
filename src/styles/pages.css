@@ -4269,6 +4269,134 @@
   border-color: rgba(146, 132, 255, 0.24);
 }
 
+.memory-metrics {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.memory-undo {
+  position: sticky;
+  z-index: 20;
+  top: calc(var(--context-height) + 10px);
+  min-height: 64px;
+  margin-bottom: 14px;
+  padding: 9px 12px;
+  border: 1px solid rgba(255, 195, 97, 0.3);
+  border-radius: var(--radius-md);
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 10px;
+  background: rgba(26, 22, 17, 0.96);
+  box-shadow: var(--shadow-md);
+  backdrop-filter: blur(16px);
+}
+
+.memory-undo > svg {
+  width: 18px;
+  color: var(--amber);
+}
+
+.memory-undo > span {
+  min-width: 0;
+  display: grid;
+}
+
+.memory-undo strong {
+  overflow: hidden;
+  color: var(--text-soft);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.memory-undo small {
+  color: var(--faint);
+  font-size: 8px;
+}
+
+.memory-filterbar {
+  display: grid;
+  grid-template-columns: minmax(230px, 1.4fr) repeat(4, minmax(120px, 0.7fr));
+  gap: 9px;
+  margin-bottom: 16px;
+}
+
+.memory-editor {
+  background:
+    radial-gradient(circle at 95% 0%, rgba(146, 132, 255, 0.09), transparent 24rem),
+    rgba(13, 19, 32, 0.9);
+}
+
+.memory-editor .section-heading p:last-child {
+  margin: 3px 0 0;
+  color: var(--faint);
+  font-size: 9px;
+}
+
+.memory-grid-v2 {
+  grid-template-columns: repeat(auto-fit, minmax(310px, 1fr));
+}
+
+.memory-grid-v2 .memory-card {
+  min-height: 330px;
+  position: relative;
+}
+
+.memory-grid-v2 .memory-retrospective {
+  border-color: rgba(78, 211, 255, 0.2);
+  background:
+    linear-gradient(180deg, rgba(78, 211, 255, 0.045), transparent 45%),
+    rgba(9, 13, 23, 0.58);
+}
+
+.memory-card-body {
+  padding: 17px 0 4px;
+}
+
+.memory-card-body h3 {
+  margin: 3px 0 7px;
+}
+
+.memory-card-body .memory-excerpt {
+  min-height: 68px;
+  margin: 0;
+}
+
+.memory-provenance {
+  margin: auto 0 0;
+  padding: 11px 0;
+  border-top: 1px solid var(--line);
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.memory-provenance > div {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.memory-provenance dt {
+  color: var(--faint);
+  font-size: 7px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.memory-provenance dd {
+  margin: 0;
+  overflow: hidden;
+  color: var(--text-soft);
+  font-size: 8px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.memory-grid-v2 .memory-card > footer {
+  margin-top: 0;
+}
+
 .check-control {
   display: flex;
   align-items: center;
