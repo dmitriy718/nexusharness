@@ -308,11 +308,14 @@ export type CommitReceipt = z.infer<typeof commitReceiptSchema>;
 type CapabilityKind = keyof CapabilityEnvelope;
 
 export interface ExecutionCellProvider {
+  readonly securityBoundary: boolean;
+  readonly boundaryDescription: string;
   prepare(spec: CellSpec): Promise<ExecutionCell>;
   execute(cellId: string, contract: ContractedAction, lease: CapabilityLease): Promise<ActionReceipt>;
+  transition(cellId: string, nextState: CellState): Promise<ExecutionCell>;
   snapshot(cellId: string, reason: string): Promise<CellSnapshot>;
   diff(cellId: string): Promise<EffectSet>;
-  commit(cellId: string, expectedBase: string): Promise<CommitReceipt>;
+  commit(cellId: string, expectedBase: string, effectReceiptDigests: string[]): Promise<CommitReceipt>;
   destroy(cellId: string): Promise<void>;
 }
 
