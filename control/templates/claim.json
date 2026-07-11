@@ -1,0 +1,15 @@
+{
+  "schemaVersion": 1,
+  "id": "generated-by-control-script",
+  "agent": "agent-or-session-name",
+  "task": "bounded task description",
+  "areas": ["repository/relative/path/**"],
+  "resources": ["logical-resource"],
+  "issues": ["NH-0000"],
+  "mode": "exclusive",
+  "versionImpact": "none",
+  "status": "active",
+  "createdAt": "ISO-8601 UTC",
+  "heartbeatAt": "ISO-8601 UTC",
+  "expiresAt": "ISO-8601 UTC"
+}

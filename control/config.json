@@ -1,0 +1,8 @@
+{
+  "schemaVersion": 1,
+  "claimTtlMinutes": 30,
+  "lockStaleMinutes": 5,
+  "versionImpacts": ["none", "patch", "minor", "major"],
+  "issueStatuses": ["backlog", "ready", "in_progress", "blocked", "verify", "done"],
+  "issueSeverities": ["release-blocker", "high", "medium", "low"]
+}

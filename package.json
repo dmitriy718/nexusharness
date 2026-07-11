@@ -11,7 +11,14 @@
     "build": "tsc -p tsconfig.json && tsc -p tsconfig.server.json && vite build",
     "start": "node dist-server/server/index.js",
     "test": "vitest run",
-    "lint": "eslint ."
+    "lint": "eslint .",
+    "control:status": "node control/scripts/control.mjs status",
+    "control:claim": "node control/scripts/control.mjs claim",
+    "control:heartbeat": "node control/scripts/control.mjs heartbeat",
+    "control:takeover": "node control/scripts/control.mjs takeover",
+    "control:release": "node control/scripts/control.mjs release",
+    "control:board": "node control/scripts/control.mjs board",
+    "control:verify": "node control/scripts/control.mjs verify"
   },
   "keywords": [
     "local-ai",
