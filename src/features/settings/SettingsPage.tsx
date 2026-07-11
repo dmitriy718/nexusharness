@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { AlertTriangle, Check, Cpu, Database, FolderCode, Info, Palette, RotateCcw, Save, Settings, ShieldCheck, SlidersHorizontal, Workflow } from "lucide-react";
+import { AlertTriangle, BookOpen, Check, CircleHelp, Cpu, Database, FolderCode, Info, Palette, RotateCcw, Save, Settings, ShieldCheck, Workflow } from "lucide-react";
 import type { LayoutMode, SettingsShape } from "../../api/types";
 import { useHarness } from "../../app/StoreProvider";
 import { Field, InlineAlert, PageHeader } from "../../components/ui";
@@ -13,12 +13,13 @@ const sections: Array<{ id: SettingsSectionId; label: string; detail: string; ic
   { id: "integrations", label: "Integrations", detail: "MCP discovery", icon: <Cpu /> },
   { id: "memory", label: "Memory", detail: "Retrieval budget", icon: <Database /> },
   { id: "appearance", label: "Appearance", detail: "Run perspective", icon: <Palette /> },
-  { id: "advanced", label: "Advanced", detail: "Build and storage", icon: <SlidersHorizontal /> }
+  { id: "help", label: "Help", detail: "Workflows and recovery", icon: <CircleHelp /> },
+  { id: "about", label: "About", detail: "Build and local storage", icon: <Info /> }
 ];
 
 export function SettingsPage() {
   const { section } = useParams();
-  const { store, saveSettings } = useHarness();
+  const { store, health, saveSettings, notify } = useHarness();
   const [draft, setDraft] = useState<SettingsShape | null>(store?.settings ?? null);
   const savedSettingsRef = useRef(JSON.stringify(store?.settings ?? null));
   const [saving, setSaving] = useState(false);
@@ -33,7 +34,8 @@ export function SettingsPage() {
     });
   }, [store?.settings]);
   const dirty = useMemo(() => Boolean(store && draft && JSON.stringify(store.settings) !== JSON.stringify(draft)), [draft, store]);
-  const active = sections.some((item) => item.id === section) ? section as SettingsSectionId : "workspace";
+  const requestedSection = section === "advanced" ? "about" : section;
+  const active = sections.some((item) => item.id === requestedSection) ? requestedSection as SettingsSectionId : "workspace";
   const errors = draft ? validateSettings(draft) : {};
   const dirtySections = store && draft ? dirtySettingSections(store.settings, draft) : [];
 
@@ -68,8 +70,8 @@ export function SettingsPage() {
     {localError && <InlineAlert tone="danger" title="Settings could not be saved">{localError}</InlineAlert>}
     <div className="settings-workspace-v2">
       <nav className="settings-nav" aria-label="Settings sections">{sections.map((item) => <Link className={active === item.id ? "active" : ""} to={`/settings/${item.id}`} key={item.id}><span>{item.icon}</span><span><strong>{item.label}</strong><small>{item.detail}</small></span>{dirtySections.includes(item.id) && <i aria-label="Unsaved changes" />}</Link>)}</nav>
-      <section className="settings-route"><header><span className="setting-route-icon">{activeMeta.icon}</span><div><p className="eyebrow">Settings section</p><h2>{activeMeta.label}</h2><p>{activeMeta.detail}</p></div>{active !== "advanced" && <button className="button quiet" disabled={!sectionHasChanges(store.settings, draft, active)} onClick={restore}><RotateCcw />Restore section defaults</button>}</header>
-        <div className="settings-route-body">{active === "workspace" && <WorkspaceSettings draft={draft} setDraft={setDraft} errors={errors} />}{active === "execution" && <ExecutionSettings draft={draft} setNumber={setNumber} errors={errors} />}{active === "safety" && <SafetySettings draft={draft} setDraft={setDraft} />}{active === "integrations" && <IntegrationSettings draft={draft} setDraft={setDraft} setNumber={setNumber} errors={errors} />}{active === "memory" && <MemorySettings draft={draft} setNumber={setNumber} errors={errors} />}{active === "appearance" && <AppearanceSettings draft={draft} setDraft={setDraft} />}{active === "advanced" && <AdvancedSettings />}</div>
+      <section className="settings-route"><header><span className="setting-route-icon">{activeMeta.icon}</span><div><p className="eyebrow">Settings section</p><h2>{activeMeta.label}</h2><p>{activeMeta.detail}</p></div>{!(["help", "about"] as SettingsSectionId[]).includes(active) && <button className="button quiet" disabled={!sectionHasChanges(store.settings, draft, active)} onClick={restore}><RotateCcw />Restore section defaults</button>}</header>
+        <div className="settings-route-body">{active === "workspace" && <WorkspaceSettings draft={draft} setDraft={setDraft} errors={errors} />}{active === "execution" && <ExecutionSettings draft={draft} setNumber={setNumber} errors={errors} />}{active === "safety" && <SafetySettings draft={draft} setDraft={setDraft} />}{active === "integrations" && <IntegrationSettings draft={draft} setDraft={setDraft} setNumber={setNumber} errors={errors} />}{active === "memory" && <MemorySettings draft={draft} setNumber={setNumber} errors={errors} />}{active === "appearance" && <AppearanceSettings draft={draft} setDraft={setDraft} />}{active === "help" && <HelpSettings />}{active === "about" && <AboutSettings health={health} notify={notify} />}</div>
       </section>
     </div>
     {dirty && <div className="dirty-bar dirty-bar-v2" role="status"><span><AlertTriangle /><span><strong>{dirtySections.length} section{dirtySections.length === 1 ? "" : "s"} changed</strong><small>Unsaved settings are protected if you navigate away or close the window.</small></span></span><div><button className="button quiet" onClick={() => setDraft(store.settings)}><RotateCcw />Discard all</button><button className="button primary" disabled={saving || Object.keys(errors).length > 0} onClick={() => void save()}><Save />{saving ? "Validating and saving…" : "Save changes"}</button></div></div>}
@@ -100,8 +102,17 @@ function AppearanceSettings({ draft, setDraft }: { draft: SettingsShape; setDraf
   return <><div className="appearance-options">{([['chat', 'Focus', 'Timeline-first'], ['ide', 'Studio', 'Workspace and timeline canvas'], ['agents', 'Orchestrate', 'Agent and subtask activity']] as Array<[LayoutMode, string, string]>).map(([id, name, description]) => <button className={draft.layout === id ? "selected" : ""} onClick={() => setDraft({ ...draft, layout: id })} key={id}><span>{id === "chat" ? <Check /> : id === "ide" ? <Settings /> : <Workflow />}</span><strong>{name}</strong><small>{description}</small>{draft.layout === id && <Check className="choice-check" />}</button>)}</div><div className="setting-callout"><Palette /><div><strong>Midnight Prism</strong><p>The v2 theme is fixed during prerelease. Reduced motion and contrast preferences follow operating-system settings.</p></div></div></>;
 }
 
-function AdvancedSettings() {
-  return <div className="advanced-facts"><div><span><strong>Version</strong><small>Synchronized client and API identity</small></span><code>{__NEXUSHARNESS_BUILD__.version}</code></div><div><span><strong>Commit</strong><small>Build provenance</small></span><code>{__NEXUSHARNESS_BUILD__.commit}</code></div><div><span><strong>Storage</strong><small>Local JSON control and project state</small></span><code>Local machine only</code></div><InlineAlert tone="info" title="Advanced changes stay explicit">Runtime connections, tools, and agent assignments are managed in their dedicated inspected workflows rather than duplicated here.</InlineAlert></div>;
+function HelpSettings() {
+  return <><div className="setting-callout"><BookOpen /><div><strong>Start with readiness</strong><p>Connect a runtime in Models, assign Planner/Executor/Critic in Agents, confirm the workspace boundary, then create a focused task in Runs.</p></div></div><div className="advanced-facts"><div><span><strong>Choose a run view</strong><small>Focus narrates decisions; Studio adds bounded workspace context; Orchestrate shows agents, subtasks, approvals, and audit activity.</small></span><Link className="text-link" to="/runs">Open Runs</Link></div><div><span><strong>When work pauses</strong><small>Review the exact command, path, diff, or delete scope. Rejecting ends that originating run safely; approval applies once.</small></span><Link className="text-link" to="/approvals">Open Approvals</Link></div><div><span><strong>Connection recovery</strong><small>Start or restart the local API, use Retry in the error banner, then verify runtime health without saving over the current configuration.</small></span><Link className="text-link" to="/models">Open Models</Link></div><div><span><strong>Keyboard paths</strong><small>Use the skip link, arrow keys in tabs and Workspace entries, Escape in navigation/dialogs, and visible focus throughout.</small></span><Link className="text-link" to="/workspace">Open Workspace</Link></div></div><InlineAlert tone="info" title="Local-first help">No cloud account or telemetry is required. Project state stays in the local NexusHarness data file; workspace tools remain constrained to the configured root.</InlineAlert></>;
+}
+
+function AboutSettings({ health, notify }: { health: ReturnType<typeof useHarness>["health"]; notify: ReturnType<typeof useHarness>["notify"] }) {
+  const diagnostics = { client: __NEXUSHARNESS_BUILD__, api: health, storage: ".nexusharness/store.json", telemetry: false };
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(JSON.stringify(diagnostics, null, 2)); notify("Build diagnostics copied."); }
+    catch { notify("The browser did not allow diagnostics to be copied.", "danger"); }
+  };
+  return <><div className="advanced-facts"><div><span><strong>Client version</strong><small>Synchronized Semantic Version</small></span><code>{__NEXUSHARNESS_BUILD__.version}</code></div><div><span><strong>API version</strong><small>{health ? "Connected local service" : "API identity unavailable"}</small></span><code>{health?.version ?? "offline"}</code></div><div><span><strong>Commit</strong><small>Client / API build provenance</small></span><code>{__NEXUSHARNESS_BUILD__.commit} / {health?.commit ?? "offline"}</code></div><div><span><strong>Built</strong><small>{__NEXUSHARNESS_BUILD__.mode} client</small></span><code>{__NEXUSHARNESS_BUILD__.builtAt}</code></div><div><span><strong>Storage</strong><small>Local project state; no telemetry</small></span><code>.nexusharness/store.json</code></div></div><div className="form-actions"><button className="button secondary" onClick={() => void copy()}><BookOpen />Copy build diagnostics</button></div><InlineAlert tone="info" title="NexusHarness v2 beta">This build completes the planned interface renovation. Final v2.0.0 identity and tag remain gated by assistive-technology and owner release approval.</InlineAlert></>;
 }
 
 function NumberSetting({ id, label, value, min, max, unit, error, onChange }: { id: string; label: string; value: number; min: number; max: number; unit: string; error?: string; onChange: (value: string) => void }) {

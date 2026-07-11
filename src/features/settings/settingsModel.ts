@@ -1,6 +1,6 @@
 import type { SettingsShape } from "../../api/types";
 
-export type SettingsSectionId = "workspace" | "execution" | "safety" | "integrations" | "memory" | "appearance" | "advanced";
+export type SettingsSectionId = "workspace" | "execution" | "safety" | "integrations" | "memory" | "appearance" | "help" | "about";
 
 const sectionKeys: Record<SettingsSectionId, Array<keyof SettingsShape>> = {
   workspace: ["workspaceRoot", "testCommand", "lintCommand", "shellPath"],
@@ -9,7 +9,8 @@ const sectionKeys: Record<SettingsSectionId, Array<keyof SettingsShape>> = {
   integrations: ["mcpAutoDiscovery", "mcpPortStart", "mcpPortEnd"],
   memory: ["memoryTokenBudget"],
   appearance: ["layout"],
-  advanced: []
+  help: [],
+  about: []
 };
 
 export function validateSettings(settings: SettingsShape): Record<string, string> {
