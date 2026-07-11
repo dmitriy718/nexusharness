@@ -8,6 +8,7 @@ All notable NexusHarness changes are documented here. The format follows Keep a 
 
 - Began the v2.1 transactional execution foundation with versioned objectives, action contracts, capability leases, effect receipts, cell specifications, commit receipts, deterministic digests, and finite lifecycle validation.
 - Added an explicit-mode capability broker with policy evaluation, atomic single-use leases, observer-sourced effect comparison, blocking variance detection, chained receipts, canonical output digests, and redacted audit linkage.
+- Added the portable transaction provider for clean-repository disposable worktrees, bounded effect inventories, lifecycle persistence, interrupted-state recovery, receipt-gated stale-base-safe promotion, and owned-worktree teardown; it is explicitly not a hostile-code sandbox.
 
 ## [2.0.0-beta.1] - 2026-07-11
 
