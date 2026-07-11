@@ -35,6 +35,7 @@ All notable NexusHarness changes are documented here. The format follows Keep a 
 - Repaired the Windows Sandbox command executor's launcher contract by replacing rejected dot-prefixed bootstrap/completion names with alphanumeric-first safe transport filenames and enforcing the real naming rules in its controlled-launcher tests.
 - Accepted HR-005 real-host evidence for brokered Windows Sandbox PowerShell execution, observed file effects, unchanged-primary isolation, redacted diagnostics, receipt-gated commit, promotion, and audit linkage.
 - Added a broker-enforced portable validation-command adapter restricted to an exact trusted allowlist, explicit shell capability, no network/secrets, bounded output/runtime, shared authority stores, one-use results, and blocking rejection of any Git-visible repository mutation.
+- Added a run-scoped portable transaction coordinator that owns one cell across workspace reads, deterministic writes/deletes, allowlisted validation, persisted lifecycle summaries, mandatory validation-before-promotion, receipt-gated commit, rollback, and teardown.
 
 ## [2.0.0-beta.1] - 2026-07-11
 
