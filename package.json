@@ -17,6 +17,7 @@
     "test:workflows": "vitest run tests/workflow.browser.test.ts",
     "test:package": "node scripts/packageDryRun.mjs",
     "test:windows-sandbox": "tsx scripts/windowsSandboxProbe.ts",
+    "test:windows-sandbox-command": "tsx scripts/windowsSandboxCommandProbe.ts",
     "test:visual": "vitest run tests/visual.browser.test.ts",
     "test:visual:update": "vitest run tests/visual.browser.test.ts",
     "lint": "eslint .",
