@@ -16,7 +16,7 @@ import {
 import { api, errorMessage } from "../../api/client";
 import type { Approval } from "../../api/types";
 import { useHarness } from "../../app/StoreProvider";
-import { EmptyState, InlineAlert, PageHeader, StatusBadge, formatDate, shortId } from "../../components/ui";
+import { EmptyState, InlineAlert, PageHeader, StatusBadge, formatDate, handleTabListKeyDown, shortId } from "../../components/ui";
 import {
   approvalCommand,
   approvalDiff,
@@ -115,7 +115,7 @@ function PayloadPreview({ approval }: { approval: Approval }) {
   const redacted = redactPayload(approval.payload);
   return (
     <div className="payload-preview">
-      <div className="preview-tabs" role="tablist" aria-label="Approval payload view"><button role="tab" aria-selected={tab === "review"} className={tab === "review" ? "active" : ""} onClick={() => setTab("review")}>Review</button><button role="tab" aria-selected={tab === "raw"} className={tab === "raw" ? "active" : ""} onClick={() => setTab("raw")}>Redacted raw</button></div>
+      <div className="preview-tabs" role="tablist" aria-label="Approval payload view" onKeyDown={handleTabListKeyDown}><button role="tab" tabIndex={tab === "review" ? 0 : -1} aria-selected={tab === "review"} className={tab === "review" ? "active" : ""} onClick={() => setTab("review")}>Review</button><button role="tab" tabIndex={tab === "raw" ? 0 : -1} aria-selected={tab === "raw"} className={tab === "raw" ? "active" : ""} onClick={() => setTab("raw")}>Redacted raw</button></div>
       {tab === "review" ? <>
         {target && <div className="payload-section"><span><FileCode2 /></span><div><small>{payload.cwd ? "Working directory" : "Target"}</small><code>{target}</code></div></div>}
         {command && <div className="payload-section command-section"><span><Terminal /></span><div><small>Command · {String(payload.shell ?? "configured shell")}</small><pre>{command}</pre></div></div>}

@@ -4,7 +4,7 @@ import { AlertTriangle, Boxes, Check, ChevronRight, Code2, FileCode2, Filter, Ne
 import { api, errorMessage } from "../../api/client";
 import type { McpServer, McpTool } from "../../api/types";
 import { useHarness } from "../../app/StoreProvider";
-import { EmptyState, Field, InlineAlert, PageHeader, StatusBadge, formatDate } from "../../components/ui";
+import { EmptyState, Field, InlineAlert, PageHeader, StatusBadge, formatDate, handleTabListKeyDown } from "../../components/ui";
 import { discoveryChunks, filterMcpServers, meaningfulArguments, parseStdioArguments, schemaSummary, toolCategory, toolRisk } from "./toolModel";
 
 type DiscoveryResponse = { servers: McpServer[]; range: { start: number; end: number }; scanned: number };
@@ -148,7 +148,7 @@ export function ToolsPage() {
 
   return <div className="page tools-page">
     <PageHeader eyebrow="Capability layer" title="Tools & MCP" detail="Inspect every capability available to Executor agents and preserve explicit local safety policy." actions={tab === "mcp" ? <><button className="button secondary" disabled={scan.running} onClick={() => void discover()}><RefreshCw className={scan.running ? "spin" : ""} />Scan {store.settings.mcpPortStart}-{store.settings.mcpPortEnd}</button><button className="button primary" onClick={() => setFormOpen(true)}><Plus />Add server</button></> : undefined} />
-    <div className="feature-tabs" role="tablist" aria-label="Tool configuration view"><button role="tab" aria-selected={tab === "mcp"} className={tab === "mcp" ? "active" : ""} onClick={() => setTab("mcp")}><Network />MCP servers <span>{store.mcpServers.length}</span></button><button role="tab" aria-selected={tab === "local"} className={tab === "local" ? "active" : ""} onClick={() => setTab("local")}><ShieldCheck />Local tools & policy <span>{localTools.length}</span></button></div>
+    <div className="feature-tabs" role="tablist" aria-label="Tool configuration view" onKeyDown={handleTabListKeyDown}><button role="tab" tabIndex={tab === "mcp" ? 0 : -1} aria-selected={tab === "mcp"} className={tab === "mcp" ? "active" : ""} onClick={() => setTab("mcp")}><Network />MCP servers <span>{store.mcpServers.length}</span></button><button role="tab" tabIndex={tab === "local" ? 0 : -1} aria-selected={tab === "local"} className={tab === "local" ? "active" : ""} onClick={() => setTab("local")}><ShieldCheck />Local tools & policy <span>{localTools.length}</span></button></div>
     {localError && <InlineAlert tone="danger" title="Tool action failed">{localError}</InlineAlert>}
     {tab === "local" ? <LocalPolicy approvalMode={store.settings.approvalMode} /> : <>
       {scan.started && <DiscoveryProgress scan={scan} range={`${store.settings.mcpPortStart}-${store.settings.mcpPortEnd}`} cancel={cancelScan} close={() => setScan(emptyScan)} />}

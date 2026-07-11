@@ -62,6 +62,8 @@ input:focus-visible,
 select:focus-visible,
 textarea:focus-visible,
 summary:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
   box-shadow: 0 0 0 3px rgba(81, 216, 232, 0.3);
   border-color: var(--focus) !important;
 }
@@ -251,7 +253,7 @@ textarea {
 
 input::placeholder,
 textarea::placeholder {
-  color: #66728b;
+  color: var(--faint);
 }
 
 input:hover,
@@ -334,5 +336,44 @@ textarea:hover {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+  }
+}
+
+@media (pointer: coarse) {
+  button,
+  [role="button"],
+  nav a,
+  summary {
+    min-width: 44px !important;
+    min-height: 44px !important;
+  }
+
+  .check-control,
+  .tool-toggle,
+  .server-enable-control,
+  .setting-toggle {
+    min-height: 44px;
+  }
+}
+
+@media (forced-colors: active) {
+  button:focus-visible,
+  a:focus-visible,
+  input:focus-visible,
+  select:focus-visible,
+  textarea:focus-visible,
+  summary:focus-visible {
+    outline: 3px solid Highlight;
+    box-shadow: none;
+  }
+
+  .status-badge > span,
+  .local-chip > span,
+  .live-state > span,
+  .live-indicator > span,
+  .live-run-chip > span {
+    border: 1px solid CanvasText;
+    background: CanvasText;
+    forced-color-adjust: none;
   }
 }

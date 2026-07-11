@@ -93,6 +93,17 @@ export function Field({
   );
 }
 
+export function handleTabListKeyDown(event: React.KeyboardEvent<HTMLElement>) {
+  if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+  const tabs = [...event.currentTarget.querySelectorAll<HTMLButtonElement>("[role='tab']:not(:disabled)")];
+  const current = tabs.indexOf(document.activeElement as HTMLButtonElement);
+  if (current < 0 || !tabs.length) return;
+  event.preventDefault();
+  const next = event.key === "Home" ? 0 : event.key === "End" ? tabs.length - 1 : (current + (event.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length;
+  tabs[next].focus();
+  tabs[next].click();
+}
+
 export function formatDate(value?: string) {
   if (!value) return "Unknown time";
   const date = new Date(value);

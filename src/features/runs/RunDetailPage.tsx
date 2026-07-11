@@ -19,7 +19,7 @@ import {
 import { api, errorMessage } from "../../api/client";
 import type { RunPhase, TaskRun } from "../../api/types";
 import { useHarness } from "../../app/StoreProvider";
-import { EmptyState, InlineAlert, RunStatusBadge, formatDate, formatDuration, shortId } from "../../components/ui";
+import { EmptyState, InlineAlert, RunStatusBadge, formatDate, formatDuration, handleTabListKeyDown, shortId } from "../../components/ui";
 import { displayRunValue, phaseState, runActions, runSummary } from "./runModel";
 import { modeFromLayout, type RunMode } from "./runModeModel";
 import { OrchestrateMode, StudioMode } from "./RunModes";
@@ -108,10 +108,10 @@ export function RunDetailPage() {
         </section>
 
         <aside className="run-inspector">
-          <div className="inspector-tabs" role="tablist" aria-label="Run inspector">
-            <button role="tab" aria-selected={inspector === "overview"} className={inspector === "overview" ? "active" : ""} onClick={() => setInspector("overview")}>Overview</button>
-            <button role="tab" aria-selected={inspector === "outputs"} className={inspector === "outputs" ? "active" : ""} onClick={() => setInspector("outputs")}>Outputs</button>
-            <button role="tab" aria-selected={inspector === "activity"} className={inspector === "activity" ? "active" : ""} onClick={() => setInspector("activity")}>Activity</button>
+          <div className="inspector-tabs" role="tablist" aria-label="Run inspector" onKeyDown={handleTabListKeyDown}>
+            <button role="tab" tabIndex={inspector === "overview" ? 0 : -1} aria-selected={inspector === "overview"} className={inspector === "overview" ? "active" : ""} onClick={() => setInspector("overview")}>Overview</button>
+            <button role="tab" tabIndex={inspector === "outputs" ? 0 : -1} aria-selected={inspector === "outputs"} className={inspector === "outputs" ? "active" : ""} onClick={() => setInspector("outputs")}>Outputs</button>
+            <button role="tab" tabIndex={inspector === "activity" ? 0 : -1} aria-selected={inspector === "activity"} className={inspector === "activity" ? "active" : ""} onClick={() => setInspector("activity")}>Activity</button>
           </div>
           {inspector === "overview" && <><dl className="inspector-stats">
             <div><dt>Status</dt><dd><RunStatusBadge status={run.status} /></dd></div>
