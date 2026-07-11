@@ -4,7 +4,7 @@ import { lstat, mkdir, readFile, readdir, realpath, rm, stat, writeFile } from "
 import path from "node:path";
 import { nanoid } from "nanoid";
 import { createTwoFilesPatch } from "diff";
-import type { ApprovalRequest, Settings } from "./types.js";
+import type { ApprovalContext, ApprovalRequest, Settings } from "./types.js";
 import { audit, loadStore, saveStore } from "./store.js";
 
 export function resolveInside(root: string, target: string): string {
@@ -49,13 +49,14 @@ async function resolveInsideRealWorkspace(root: string, target: string): Promise
   return resolvedTarget;
 }
 
-async function requireApproval(settings: Settings, action: string, risk: ApprovalRequest["risk"], payload: unknown): Promise<void> {
+async function requireApproval(settings: Settings, action: string, risk: ApprovalRequest["risk"], payload: unknown, context: ApprovalContext = {}): Promise<void> {
   if (!settings.approvalMode || risk === "read") return;
   const store = await loadStore();
   const payloadJson = JSON.stringify(payload);
   const matches = store.approvals.filter((item) =>
     item.action === action &&
     item.risk === risk &&
+    item.runId === context.runId &&
     JSON.stringify(item.payload) === payloadJson
   );
   const pending = matches.find((item) => item.decision === "pending");
@@ -64,7 +65,7 @@ async function requireApproval(settings: Settings, action: string, risk: Approva
   if (approved) {
     approved.usedAt = new Date().toISOString();
     await saveStore(store);
-    await audit({ actor: "system", action: "approval.consume", risk, status: "ok", message: action, details: { approvalId: approved.id } });
+    await audit({ actor: "system", action: "approval.consume", risk, status: "ok", message: action, details: { approvalId: approved.id, ...context } });
     return;
   }
   const latest = matches[0];
@@ -76,11 +77,12 @@ async function requireApproval(settings: Settings, action: string, risk: Approva
     action,
     risk,
     payload,
+    ...context,
     decision: "pending"
   };
   store.approvals.unshift(request);
   await saveStore(store);
-  await audit({ actor: "executor", action, risk, status: "pending", message: "Approval required.", details: { approvalId: request.id } });
+  await audit({ actor: "executor", action, risk, status: "pending", message: "Approval required.", details: { approvalId: request.id, ...context } });
   throw new Error(`Approval required for ${action}. approvalId=${request.id}`);
 }
 
@@ -118,7 +120,7 @@ export async function readWorkspaceFile(settings: Settings, relativePath: string
   return selected;
 }
 
-export async function writeWorkspaceFile(settings: Settings, relativePath: string, content: string) {
+export async function writeWorkspaceFile(settings: Settings, relativePath: string, content: string, context: ApprovalContext = {}) {
   if (Buffer.byteLength(content) > 5 * 1024 * 1024) throw new Error("File write exceeds the 5 MiB safety limit.");
   const filePath = await resolveInsideRealWorkspace(settings.workspaceRoot, relativePath);
   let previousContent: string | null = null;
@@ -130,9 +132,11 @@ export async function writeWorkspaceFile(settings: Settings, relativePath: strin
   await requireApproval(settings, "file.write", "write", {
     relativePath,
     bytes: Buffer.byteLength(content),
+    previousBytes: previousContent === null ? null : Buffer.byteLength(previousContent),
     previousSha256: previousContent === null ? null : contentSha256(previousContent),
-    nextSha256: contentSha256(content)
-  });
+    nextSha256: contentSha256(content),
+    diff: safePatch(relativePath, previousContent, content)
+  }, context);
   await mkdir(path.dirname(filePath), { recursive: true });
   await writeFile(filePath, content, "utf8");
   const details = {
@@ -146,23 +150,24 @@ export async function writeWorkspaceFile(settings: Settings, relativePath: strin
   return { path: relativePath, ...details };
 }
 
-export async function deleteWorkspacePath(settings: Settings, relativePath: string) {
+export async function deleteWorkspacePath(settings: Settings, relativePath: string, context: ApprovalContext = {}) {
   const filePath = await resolveInsideRealWorkspace(settings.workspaceRoot, relativePath);
   if (filePath === path.resolve(settings.workspaceRoot)) {
     throw new Error("Refusing to delete the configured workspace root.");
   }
-  await requireApproval(settings, "file.delete", "write", { relativePath });
+  const targetStat = await lstat(filePath);
+  await requireApproval(settings, "file.delete", "write", { relativePath, targetType: targetStat.isDirectory() ? "directory" : "file", recursive: targetStat.isDirectory() }, context);
   await rm(filePath, { recursive: true, force: false });
   await audit({ actor: "executor", action: "file.delete", risk: "write", status: "ok", message: relativePath });
   return { path: relativePath };
 }
 
-export async function runShell(settings: Settings, command: string, signal?: AbortSignal) {
+export async function runShell(settings: Settings, command: string, signal?: AbortSignal, context: ApprovalContext = {}) {
   if (!command.trim()) throw new Error("Shell command cannot be empty.");
   if (command.length > 100_000) throw new Error("Shell command exceeds the 100,000 character safety limit.");
-  await requireApproval(settings, "shell.exec", "execute", { command });
   const cwd = await realpath(path.resolve(settings.workspaceRoot));
   const shell = settings.shellPath;
+  await requireApproval(settings, "shell.exec", "execute", { command, cwd, shell }, context);
   const shellName = path.basename(shell).toLowerCase();
   const args = shellName.includes("powershell") || shellName.includes("pwsh")
     ? ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", command]

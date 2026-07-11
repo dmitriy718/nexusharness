@@ -1,5 +1,8 @@
 import React, { useState } from "react";
+import { Link } from "react-router-dom";
 import {
+  AlertTriangle,
+  Bot,
   Check,
   CheckCircle2,
   ChevronRight,
@@ -16,6 +19,15 @@ import { api, errorMessage } from "../../api/client";
 import type { Approval, AuditEvent } from "../../api/types";
 import { useHarness } from "../../app/StoreProvider";
 import { EmptyState, InlineAlert, PageHeader, StatusBadge, formatDate, shortId } from "../../components/ui";
+import {
+  approvalCommand,
+  approvalDiff,
+  approvalPayload,
+  approvalTarget,
+  humanApprovalAction,
+  parseDiff,
+  redactPayload
+} from "./approvalModel";
 
 export function ApprovalsPage() {
   const { store, refresh, notify } = useHarness();
@@ -59,7 +71,7 @@ export function ApprovalsPage() {
             {pending.map((approval) => (
               <button key={approval.id} className={"approval-queue-item" + (approval.id === selected?.id ? " active" : "")} onClick={() => setSelectedId(approval.id)}>
                 <span className={"risk-symbol risk-" + approval.risk}>{approvalIcon(approval)}</span>
-                <span><strong>{humanAction(approval.action)}</strong><small>{approval.actor} · {formatDate(approval.createdAt)}</small><em>{approval.risk} risk</em></span>
+                <span><strong>{humanApprovalAction(approval.action)}</strong><small>{approval.subtask || approval.actor} · {formatDate(approval.createdAt)}</small><em>{approval.risk} risk{approval.runId ? " · run #" + shortId(approval.runId) : ""}</em></span>
                 <ChevronRight />
               </button>
             ))}
@@ -68,8 +80,9 @@ export function ApprovalsPage() {
             <section className="approval-review">
               <header className="review-header">
                 <div className={"risk-symbol large risk-" + selected.risk}>{approvalIcon(selected)}</div>
-                <div><p className="eyebrow">{selected.risk} risk · approval #{shortId(selected.id)}</p><h2>{humanAction(selected.action)}</h2><p>Requested by {selected.actor} at {formatDate(selected.createdAt)}</p></div>
+                <div><p className="eyebrow">{selected.risk} risk · approval #{shortId(selected.id)}</p><h2>{humanApprovalAction(selected.action)}</h2><p>Requested by {selected.actor} at {formatDate(selected.createdAt)}</p></div>
               </header>
+              {(selected.runId || selected.subtask) && <div className="approval-origin"><Bot /><div><small>Origin</small><strong>{selected.subtask || "Executor workflow"}</strong>{selected.runId && <Link to={"/runs/" + selected.runId}>Open run #{shortId(selected.runId)} <ChevronRight /></Link>}</div></div>}
               {actionError && <InlineAlert title="Decision could not be saved">{actionError}</InlineAlert>}
               <InlineAlert tone={selected.risk === "read" ? "info" : "warning"} title={riskTitle(selected.risk)}>
                 {riskDescription(selected.risk)}
@@ -88,7 +101,7 @@ export function ApprovalsPage() {
 
       <section className="section-block approval-history">
         <div className="section-heading"><div><p className="eyebrow">Decision record</p><h2>Recent history</h2></div></div>
-        {history.slice(0, 12).map((approval) => <div className="history-row" key={approval.id}><span className={"decision-mark " + approval.decision}>{approval.decision === "approved" ? <Check /> : <X />}</span><span><strong>{humanAction(approval.action)}</strong><small>{approval.actor} · {formatDate(approval.decidedAt ?? approval.createdAt)}</small></span><StatusBadge status={approval.decision} /></div>)}
+        {history.slice(0, 12).map((approval) => <div className="history-row" key={approval.id}><span className={"decision-mark " + approval.decision}>{approval.decision === "approved" ? <Check /> : <X />}</span><span><strong>{humanApprovalAction(approval.action)}</strong><small>{approval.subtask || approval.actor} · {formatDate(approval.decidedAt ?? approval.createdAt)}</small></span><StatusBadge status={approval.decision} /></div>)}
         {!history.length && <p className="muted-copy">No completed approval decisions yet.</p>}
       </section>
     </div>
@@ -96,16 +109,23 @@ export function ApprovalsPage() {
 }
 
 function PayloadPreview({ approval }: { approval: Approval }) {
-  const payload = (approval.payload && typeof approval.payload === "object" ? approval.payload : { value: approval.payload }) as Record<string, unknown>;
-  const command = String(payload.command ?? payload.cmd ?? "");
-  const target = String(payload.path ?? payload.file ?? payload.cwd ?? payload.workspaceRoot ?? "");
+  const [tab, setTab] = useState<"review" | "raw">("review");
+  const payload = approvalPayload(approval);
+  const command = approvalCommand(approval);
+  const target = approvalTarget(approval);
+  const diff = approvalDiff(approval);
+  const redacted = redactPayload(approval.payload);
   return (
     <div className="payload-preview">
-      <div className="preview-tabs"><button className="active">Review</button><button>Raw payload</button></div>
-      {target && <div className="payload-section"><span><FileCode2 /></span><div><small>Target</small><code>{target}</code></div></div>}
-      {command && <div className="payload-section command-section"><span><Terminal /></span><div><small>Command</small><pre>{command}</pre></div></div>}
-      {!target && !command && <div className="payload-section command-section"><span><Code2 /></span><div><small>Requested payload</small><pre>{JSON.stringify(approval.payload, null, 2)}</pre></div></div>}
-      <details><summary>Inspect raw request</summary><pre>{JSON.stringify(approval.payload, null, 2)}</pre></details>
+      <div className="preview-tabs" role="tablist" aria-label="Approval payload view"><button role="tab" aria-selected={tab === "review"} className={tab === "review" ? "active" : ""} onClick={() => setTab("review")}>Review</button><button role="tab" aria-selected={tab === "raw"} className={tab === "raw" ? "active" : ""} onClick={() => setTab("raw")}>Redacted raw</button></div>
+      {tab === "review" ? <>
+        {target && <div className="payload-section"><span><FileCode2 /></span><div><small>{payload.cwd ? "Working directory" : "Target"}</small><code>{target}</code></div></div>}
+        {command && <div className="payload-section command-section"><span><Terminal /></span><div><small>Command · {String(payload.shell ?? "configured shell")}</small><pre>{command}</pre></div></div>}
+        {diff && <div className="diff-review"><header><span><FileCode2 /></span><div><small>Proposed change</small><strong>{String(payload.relativePath ?? "Unified diff")}</strong></div><em>{String(payload.previousBytes ?? 0)} → {String(payload.bytes ?? 0)} bytes</em></header><pre>{parseDiff(diff).map((line, index) => <span className={"diff-" + line.kind} key={index}>{line.text || " "}</span>)}</pre></div>}
+        {payload.targetType && <div className="delete-review"><AlertTriangle /><div><strong>Delete {String(payload.targetType)}</strong><p>{payload.recursive ? "This removes the directory and its descendants." : "This removes the selected file."}</p></div></div>}
+        {!target && !command && !diff && <div className="payload-section command-section"><span><Code2 /></span><div><small>Requested payload</small><pre>{JSON.stringify(redacted, null, 2)}</pre></div></div>}
+        {(payload.previousSha256 || payload.nextSha256) && <dl className="hash-review"><div><dt>Previous SHA-256</dt><dd><code>{String(payload.previousSha256 ?? "new file")}</code></dd></div><div><dt>Proposed SHA-256</dt><dd><code>{String(payload.nextSha256)}</code></dd></div></dl>}
+      </> : <pre className="raw-payload">{JSON.stringify(redacted, null, 2)}</pre>}
     </div>
   );
 }
@@ -147,10 +167,6 @@ function AuditRow({ event }: { event: AuditEvent }) {
       {event.details !== undefined && <pre>{typeof event.details === "string" ? event.details : JSON.stringify(event.details, null, 2)}</pre>}
     </details>
   );
-}
-
-function humanAction(action: string) {
-  return action.replaceAll(".", " ").replaceAll("_", " ").replace(/\b\w/g, (value) => value.toUpperCase());
 }
 
 function approvalIcon(approval: Approval) {

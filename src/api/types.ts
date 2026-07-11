@@ -88,6 +88,8 @@ export type Approval = {
   action: string;
   risk: string;
   payload: unknown;
+  runId?: string;
+  subtask?: string;
   decision: "pending" | "approved" | "rejected";
   decidedAt?: string;
 };
