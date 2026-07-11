@@ -21,6 +21,8 @@ import type { RunPhase, TaskRun } from "../../api/types";
 import { useHarness } from "../../app/StoreProvider";
 import { EmptyState, InlineAlert, RunStatusBadge, formatDate, formatDuration, shortId } from "../../components/ui";
 import { displayRunValue, phaseState, runActions, runSummary } from "./runModel";
+import { modeFromLayout, type RunMode } from "./runModeModel";
+import { OrchestrateMode, StudioMode } from "./RunModes";
 
 const phases: Array<{ id: RunPhase; label: string; icon: React.ComponentType<{ className?: string }> }> = [
   { id: "plan", label: "Plan", icon: Clipboard },
@@ -38,6 +40,7 @@ export function RunDetailPage() {
   const [busy, setBusy] = useState("");
   const [actionError, setActionError] = useState("");
   const [inspector, setInspector] = useState<"overview" | "outputs" | "activity">("overview");
+  const [mode, setMode] = useState<RunMode>(() => (localStorage.getItem("nexusharness.runMode") as RunMode | null) ?? modeFromLayout(store?.settings.layout ?? null));
   const run = store?.runs.find((item) => item.id === runId);
 
   const events = useMemo(() => store?.audit.filter((event) => {
@@ -84,14 +87,12 @@ export function RunDetailPage() {
       {run.status === "waiting_approval" && <InlineAlert tone="warning" title="Operator decision required"><Link className="text-link" to="/approvals">Review the pending approval before resuming this run.</Link></InlineAlert>}
 
       <div className="mode-switcher" aria-label="Workspace mode">
-        <button className="active">Focus</button>
-        <button disabled title="Studio mode is scheduled for the v2 mode phase.">Studio <span>Preview</span></button>
-        <button disabled title="Orchestrate mode is scheduled for the v2 mode phase.">Orchestrate <span>Preview</span></button>
+        {(["focus", "studio", "orchestrate"] as RunMode[]).map((item) => <button className={mode === item ? "active" : ""} aria-pressed={mode === item} onClick={() => { setMode(item); localStorage.setItem("nexusharness.runMode", item); }} key={item}>{item}</button>)}
       </div>
 
       <PhaseRail run={run} />
 
-      <div className="run-workspace mode-focus">
+      {mode === "focus" && <div className="run-workspace mode-focus">
         <section className="timeline-panel">
           <div className="panel-heading"><div><p className="eyebrow">Live narrative</p><h2>Run timeline</h2></div><span className="live-indicator"><span />{run.status === "running" ? "Live" : "Saved"}</span></div>
           <div className="timeline">
@@ -143,7 +144,9 @@ export function RunDetailPage() {
             }
           }}><Clipboard />Copy summary</button>
         </aside>
-      </div>
+      </div>}
+      {mode === "studio" && <StudioMode run={run} store={store} />}
+      {mode === "orchestrate" && <OrchestrateMode run={run} store={store} />}
     </div>
   );
 }
