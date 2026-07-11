@@ -9,3 +9,4 @@ control/.locks/
 control/claims/active/*.json
 !control/claims/active/.gitkeep
 UXUI/capture.png
+UXUI/capture2.png
