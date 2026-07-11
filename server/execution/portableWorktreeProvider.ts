@@ -193,6 +193,17 @@ export class PortableWorktreeProvider implements ExecutionCellProvider {
     });
   }
 
+  async trustedWorkspacePath(cellId: string) {
+    await this.initialize();
+    return this.withCellLock(cellId, async () => {
+      const record = await this.readRecord(cellId);
+      if (record.cell.state === "destroyed") throw new Error(`Destroyed cell ${cellId} has no accessible workspace.`);
+      this.assertOwnedWorktree(record.worktreePath, cellId);
+      if (!(await exists(record.worktreePath))) throw new Error(`Execution cell workspace is unavailable: ${cellId}.`);
+      return record.worktreePath;
+    });
+  }
+
   async commit(cellId: string, expectedBase: string, effectReceiptDigests: string[] = []): Promise<CommitReceipt> {
     await this.initialize();
     return this.withCellLock(cellId, async () => {
