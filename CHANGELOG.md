@@ -26,6 +26,7 @@ All notable NexusHarness changes are documented here. The format follows Keep a 
 - Added brokered Windows Sandbox PowerShell command transport with digest-bound registration, approval preflight, encoded guest scripts, bounded BOM-safe results, one-use output retrieval, host-observed Git effects, single-use leases, and redacted failure receipts.
 - Accepted HR-002 owner evidence and closed the manual NVDA/Chrome assistive-technology gate with no reported findings.
 - Added an owner-run real Windows Sandbox command-provider probe covering digest-bound execution, broker receipts, unchanged-primary isolation, host-observed effects, receipt-gated promotion, writeback, and teardown.
+- Began the hardened Linux provider with a fail-closed Firecracker+jailer launch-profile foundation requiring dedicated UID/GID, normalized non-colliding jail paths, an explicit cgroup parent, a new PID namespace, file limits, bounded CPU/memory, read-only boot parameters, and no guest network interfaces; the built-in seccomp default and every real isolation property remain subject to HR-006 Linux/KVM verification.
 
 ## [2.0.0-beta.1] - 2026-07-11
 
