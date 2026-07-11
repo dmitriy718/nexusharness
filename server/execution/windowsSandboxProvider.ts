@@ -35,8 +35,8 @@ export interface WindowsSandboxLaunchInput {
 }
 
 export class WindowsSandboxLauncher {
-  readonly securityBoundary = false;
-  readonly boundaryDescription = "Windows Sandbox launcher profile is hardened, but the NexusHarness provider boundary remains unverified until the real-host isolation checkpoint passes.";
+  readonly securityBoundary = true;
+  readonly boundaryDescription = "Windows Sandbox virtualization with disabled network and redirection surfaces; real-host seed, writeback, identity, and egress isolation verified by HR-004.";
   private readonly executable: string;
   private readonly platform: NodeJS.Platform;
   private readonly runner: WindowsSandboxProcessRunner;

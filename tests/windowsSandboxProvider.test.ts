@@ -86,7 +86,8 @@ describe("Windows Sandbox launcher foundation", () => {
       }
     };
     const launcher = new WindowsSandboxLauncher({ executable, platform: "win32", runner, id: () => "profile-1" });
-    expect(launcher.securityBoundary).toBe(false);
+    expect(launcher.securityBoundary).toBe(true);
+    expect(launcher.boundaryDescription).toContain("verified by HR-004");
     await launcher.launch({ hostFolder: cell, configurationDirectory: configurations, bootstrapScript: "bootstrap.ps1", completionFile: "complete.json", timeoutMs: 20_000 });
     expect(captured).toContain(`<HostFolder>${cell}</HostFolder>`);
     await expect(access(configurationPath)).rejects.toThrow();

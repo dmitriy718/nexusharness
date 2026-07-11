@@ -20,6 +20,7 @@ All notable NexusHarness changes are documented here. The format follows Keep a 
 - Repaired real-host probe shutdown and cleanup by removing guest-forced shutdown, closing only probe-created Sandbox sessions, preserving pre-existing sessions, and retrying transient mapped-folder locks.
 - Made Windows Sandbox probe result interchange BOM-safe by emitting BOM-free UTF-8 in the Windows PowerShell guest and accepting legacy BOM-prefixed JSON on the Node host.
 - Made an empty Windows Sandbox session list a successful preflight result instead of treating PowerShell's no-process exit code as a probe failure.
+- Accepted HR-004 real-host evidence and promoted the hardened Windows Sandbox launcher from an unverified candidate to a verified virtualization boundary; full execution-cell integration remains pending.
 
 ## [2.0.0-beta.1] - 2026-07-11
 
