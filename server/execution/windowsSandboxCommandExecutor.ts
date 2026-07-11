@@ -7,7 +7,9 @@ import {
   InMemoryLeaseUseStore,
   InMemoryReceiptChainStore,
   type BrokerAuditSink,
-  type EffectObservation
+  type EffectObservation,
+  type LeaseUseStore,
+  type ReceiptChainStore
 } from "./broker.js";
 import { executionDigest, type CapabilityLease, type ContractedAction, type ObservedEffect } from "./contracts.js";
 import {
@@ -24,6 +26,7 @@ interface RegisteredCommand {
   settings: Settings;
   context: ApprovalContext;
   payloadDigest: string;
+  signal?: AbortSignal;
 }
 
 interface PreparedCommand extends RegisteredCommand {
@@ -80,6 +83,8 @@ export interface WindowsSandboxCommandExecutorOptions {
   brokerAudit: BrokerAuditSink;
   launcher?: SandboxCommandLauncher;
   authorize?: LocalApprovalAuthorizer;
+  leases?: LeaseUseStore;
+  receipts?: ReceiptChainStore;
   now?: () => Date;
   id?: () => string;
 }
@@ -100,21 +105,21 @@ export class WindowsSandboxCommandExecutor implements WindowsSandboxActionExecut
       mode: "enforced",
       policy: { evaluate: async ({ contract, lease }) => this.policy(contract, lease) },
       observer: { observe: (cellId, operation) => this.observe(cellId, operation) },
-      leases: new InMemoryLeaseUseStore(),
-      receipts: new InMemoryReceiptChainStore(),
+      leases: options.leases ?? new InMemoryLeaseUseStore(),
+      receipts: options.receipts ?? new InMemoryReceiptChainStore(),
       audit: options.brokerAudit,
       ...(options.now ? { now: options.now } : {}),
       ...(options.id ? { id: options.id } : {})
     });
   }
 
-  register(contractId: string, input: { command: string; settings: Settings; context?: ApprovalContext }) {
+  register(contractId: string, input: { command: string; settings: Settings; context?: ApprovalContext; signal?: AbortSignal }) {
     if (!contractId.trim() || this.registered.has(contractId) || this.prepared.has(contractId)) throw new Error(`Invalid or duplicate Sandbox command contract: ${contractId}.`);
     if (!input.command.trim() || input.command.length > 100_000) throw new Error("Sandbox command must contain 1 through 100000 characters.");
     const payloadDigest = executionDigest({ kind: "shell.exec", shell: "powershell.exe", command: input.command });
     this.completed.delete(contractId);
     this.diagnostics.delete(contractId);
-    this.registered.set(contractId, { command: input.command, settings: structuredClone(input.settings), context: structuredClone(input.context ?? {}), payloadDigest });
+    this.registered.set(contractId, { command: input.command, settings: structuredClone(input.settings), context: structuredClone(input.context ?? {}), payloadDigest, ...(input.signal ? { signal: input.signal } : {}) });
     return { payloadDigest };
   }
 
@@ -198,7 +203,8 @@ export class WindowsSandboxCommandExecutor implements WindowsSandboxActionExecut
         configurationDirectory: this.options.configurationDirectory,
         bootstrapScript,
         completionFile,
-        timeoutMs: 10 * 60_000
+        timeoutMs: 10 * 60_000,
+        ...(prepared.signal ? { signal: prepared.signal } : {})
       });
       diagnostic = { stage: "result-read", exitCode: null };
       this.diagnostics.set(contractId, diagnostic);

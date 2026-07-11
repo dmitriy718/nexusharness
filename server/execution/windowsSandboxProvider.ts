@@ -71,7 +71,7 @@ export interface WindowsSandboxProviderOptions extends Omit<PortableWorktreeProv
 
 export class WindowsSandboxProvider implements ExecutionCellProvider {
   readonly securityBoundary = true;
-  readonly boundaryDescription = "Actions execute behind the HR-004-verified Windows Sandbox boundary; Git worktree staging provides effect inspection and atomic promotion.";
+  readonly boundaryDescription = "Model-originated commands execute behind the HR-004-verified Windows Sandbox boundary; deterministic broker file actions use the owned Git worktree for effect inspection and atomic promotion.";
   private readonly transactions: PortableWorktreeProvider;
 
   constructor(options: WindowsSandboxProviderOptions) {
@@ -134,6 +134,30 @@ export class WindowsSandboxProvider implements ExecutionCellProvider {
       const { spec } = await this.transactions.inspect(cell.id);
       return externalCell(cell, windowsSpecFor(spec));
     }));
+  }
+
+  async inspect(cellId: string) {
+    const record = await this.transactions.inspect(cellId);
+    const spec = windowsSpecFor(record.spec);
+    return { spec, cell: externalCell(record.cell, spec) };
+  }
+
+  trustedWorkspacePath(cellId: string) {
+    return this.transactions.trustedWorkspacePath(cellId);
+  }
+
+  async recoverCell(cellId: string, expectedObjectiveId?: string) {
+    const cell = await this.transactions.recoverCell(cellId, expectedObjectiveId);
+    const { spec } = await this.transactions.inspect(cellId);
+    return externalCell(cell, windowsSpecFor(spec));
+  }
+
+  async recoverObjective(objectiveId: string) {
+    const recovered = await this.transactions.recoverObjective(objectiveId);
+    return recovered.map(({ spec, cell }) => {
+      const windowsSpec = windowsSpecFor(spec);
+      return { spec: windowsSpec, cell: externalCell(cell, windowsSpec) };
+    });
   }
 }
 
