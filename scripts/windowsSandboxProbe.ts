@@ -1,13 +1,9 @@
-import { execFile } from "node:child_process";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { promisify } from "node:util";
 import {
-  WINDOWS_SANDBOX_SESSION_QUERY,
   WindowsSandboxLauncher,
-  parseWindowsSandboxJson,
-  parseWindowsSandboxSessionIds
+  parseWindowsSandboxJson
 } from "../server/execution/windowsSandboxProvider.js";
 
 if (process.platform !== "win32") throw new Error("The Windows Sandbox probe requires a Windows host.");
@@ -16,8 +12,6 @@ const root = await mkdtemp(join(tmpdir(), "nexus-windows-sandbox-probe-"));
 const cell = join(root, "cell");
 const configurations = join(root, "configurations");
 const resultPath = join(cell, "result.json");
-const execFileAsync = promisify(execFile);
-const existingSessions = await windowsSandboxSessionIds();
 await mkdir(cell);
 await writeFile(join(cell, "seed.txt"), "nexus-sandbox-seed\n", "utf8");
 await writeFile(join(cell, "bootstrap.ps1"), bootstrap(), "utf8");
@@ -49,7 +43,6 @@ try {
   if (!passed) throw new Error("Windows Sandbox isolation probe did not satisfy every boundary assertion.");
   console.log("Windows Sandbox isolation probe passed.");
 } finally {
-  await stopNewWindowsSandboxSessions(existingSessions);
   await removeProbeDirectory(root);
 }
 
@@ -76,19 +69,6 @@ try {
   [System.IO.File]::WriteAllText('C:\NexusCell\result.json', $json, [System.Text.UTF8Encoding]::new($false))
 }
 `;
-}
-
-async function windowsSandboxSessionIds() {
-  const { stdout } = await execFileAsync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", WINDOWS_SANDBOX_SESSION_QUERY], { windowsHide: true });
-  return parseWindowsSandboxSessionIds(stdout);
-}
-
-async function stopNewWindowsSandboxSessions(existing: Set<number>) {
-  const current = await windowsSandboxSessionIds().catch(() => new Set<number>());
-  const created = [...current].filter((id) => !existing.has(id));
-  if (!created.length) return;
-  const command = `Stop-Process -Id ${created.join(",")} -Force -ErrorAction SilentlyContinue`;
-  await execFileAsync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", command], { windowsHide: true }).catch(() => undefined);
 }
 
 async function removeProbeDirectory(directory: string) {

@@ -11,7 +11,8 @@ import {
   parseWindowsSandboxJson,
   parseWindowsSandboxSessionIds,
   type WindowsSandboxActionExecutor,
-  type WindowsSandboxProcessRunner
+  type WindowsSandboxProcessRunner,
+  type WindowsSandboxSessionController
 } from "../server/execution/windowsSandboxProvider";
 import {
   actionReceiptSchema,
@@ -96,11 +97,18 @@ describe("Windows Sandbox launcher foundation", () => {
         await writeFile(join(cell, "complete.json"), "{}", "utf8");
       }
     };
-    const launcher = new WindowsSandboxLauncher({ executable, platform: "win32", runner, id: () => "profile-1" });
+    const sessionSnapshots = [new Set([10]), new Set([10, 20])];
+    const stopped: number[][] = [];
+    const sessions: WindowsSandboxSessionController = {
+      async list() { return sessionSnapshots.shift() ?? new Set([10]); },
+      async stop(ids) { stopped.push(ids); }
+    };
+    const launcher = new WindowsSandboxLauncher({ executable, platform: "win32", runner, sessions, id: () => "profile-1" });
     expect(launcher.securityBoundary).toBe(true);
     expect(launcher.boundaryDescription).toContain("verified by HR-004");
     await launcher.launch({ hostFolder: cell, configurationDirectory: configurations, bootstrapScript: "bootstrap.ps1", completionFile: "complete.json", timeoutMs: 20_000 });
     expect(captured).toContain(`<HostFolder>${cell}</HostFolder>`);
+    expect(stopped).toEqual([[20]]);
     await expect(access(configurationPath)).rejects.toThrow();
   });
 
@@ -116,6 +124,7 @@ describe("Windows Sandbox launcher foundation", () => {
     const launcher = new WindowsSandboxLauncher({
       executable,
       platform: "win32",
+      sessions: emptySessions(),
       id: () => "failure-profile",
       runner: { async run(_executable, receivedConfiguration) { configurationPath = receivedConfiguration; throw new Error("Sandbox failed"); } }
     });
@@ -130,7 +139,7 @@ describe("Windows Sandbox launcher foundation", () => {
     await writeFile(executable, "fixture", "utf8");
     await mkdir(cell);
     await writeFile(join(cell, "bootstrap.ps1"), "exit 0", "utf8");
-    const launcher = new WindowsSandboxLauncher({ executable, platform: "win32", runner: { async run() {} } });
+    const launcher = new WindowsSandboxLauncher({ executable, platform: "win32", runner: { async run() {} }, sessions: emptySessions() });
     await expect(launcher.launch({ hostFolder: cell, configurationDirectory: join(cell, "config"), bootstrapScript: "bootstrap.ps1", completionFile: "complete.json" })).rejects.toThrow("outside the mapped cell");
   });
 
@@ -146,6 +155,7 @@ describe("Windows Sandbox launcher foundation", () => {
     const launcher = new WindowsSandboxLauncher({
       executable,
       platform: "win32",
+      sessions: emptySessions(),
       id: () => "deferred-completion",
       runner: {
         async run(_executable, receivedConfiguration) {
@@ -166,7 +176,7 @@ describe("Windows Sandbox launcher foundation", () => {
     await writeFile(executable, "fixture", "utf8");
     await mkdir(cell);
     await writeFile(join(cell, "bootstrap.ps1"), "exit 0", "utf8");
-    const launcher = new WindowsSandboxLauncher({ executable, platform: "win32", runner: { async run() {} } });
+    const launcher = new WindowsSandboxLauncher({ executable, platform: "win32", runner: { async run() {} }, sessions: emptySessions() });
     await expect(launcher.launch({ hostFolder: cell, configurationDirectory: join(sandbox, "config"), bootstrapScript: "bootstrap.ps1", completionFile })).rejects.toThrow("completionFile");
   });
 });
@@ -318,4 +328,8 @@ function git(cwd: string, args: string[]) {
     child.on("error", reject);
     child.on("close", (code) => code === 0 ? resolve(stdout.trim()) : reject(new Error(`git ${args[0]} failed: ${stderr || stdout}`)));
   });
+}
+
+function emptySessions(): WindowsSandboxSessionController {
+  return { async list() { return new Set<number>(); }, async stop() {} };
 }
