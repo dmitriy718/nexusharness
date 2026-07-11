@@ -22,6 +22,7 @@ All notable NexusHarness changes are documented here. The format follows Keep a 
 - Made an empty Windows Sandbox session list a successful preflight result instead of treating PowerShell's no-process exit code as a probe failure.
 - Accepted HR-004 real-host evidence and promoted the hardened Windows Sandbox launcher from an unverified candidate to a verified virtualization boundary; full execution-cell integration remains pending.
 - Added the `windows-sandbox` execution-cell provider by composing the verified Sandbox action boundary with isolated Git staging, mutation-safe persisted records, snapshots, effects, receipt-gated promotion, teardown, and interrupted-state recovery; only explicitly Sandbox-isolated action executors are accepted.
+- Moved Windows Sandbox remote-session ownership into the reusable launcher so every caller preserves pre-existing sessions, closes only sessions it created, and cleans temporary profiles even when session teardown fails.
 
 ## [2.0.0-beta.1] - 2026-07-11
 

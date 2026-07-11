@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { access, mkdir, realpath, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { promisify } from "node:util";
 import {
   cellSnapshotSchema,
   cellSpecSchema,
@@ -37,10 +38,16 @@ export interface WindowsSandboxProcessRunner {
   run(executable: string, configurationPath: string, timeoutMs: number, signal?: AbortSignal): Promise<void>;
 }
 
+export interface WindowsSandboxSessionController {
+  list(): Promise<Set<number>>;
+  stop(sessionIds: number[]): Promise<void>;
+}
+
 export interface WindowsSandboxLauncherOptions {
   executable?: string;
   platform?: NodeJS.Platform;
   runner?: WindowsSandboxProcessRunner;
+  sessions?: WindowsSandboxSessionController;
   id?: () => string;
 }
 
@@ -136,12 +143,14 @@ export class WindowsSandboxLauncher {
   private readonly executable: string;
   private readonly platform: NodeJS.Platform;
   private readonly runner: WindowsSandboxProcessRunner;
+  private readonly sessions: WindowsSandboxSessionController;
   private readonly id: () => string;
 
   constructor(options: WindowsSandboxLauncherOptions = {}) {
     this.platform = options.platform ?? process.platform;
     this.executable = path.resolve(options.executable ?? path.join(process.env.WINDIR ?? "C:\\Windows", "System32", "WindowsSandbox.exe"));
     this.runner = options.runner ?? new NativeWindowsSandboxRunner();
+    this.sessions = options.sessions ?? new NativeWindowsSandboxSessionController();
     this.id = options.id ?? randomUUID;
   }
 
@@ -187,6 +196,7 @@ export class WindowsSandboxLauncher {
     if (pathsOverlap(hostFolder, configurationReal)) throw new Error("Windows Sandbox configuration files must remain outside the mapped cell folder.");
     const configurationPath = path.join(configurationReal, `nexus-${safeId(this.id())}.wsb`);
     const profile = createWindowsSandboxProfile({ hostFolder, bootstrapScript, memoryMb });
+    const existingSessions = await this.sessions.list();
     await writeFile(configurationPath, profile, { encoding: "utf8", flag: "wx" });
     try {
       const startedAt = Date.now();
@@ -194,8 +204,30 @@ export class WindowsSandboxLauncher {
       const remainingMs = Math.max(1, timeoutMs - (Date.now() - startedAt));
       await waitForFile(completionPath, remainingMs, input.signal);
     } finally {
-      await rm(configurationPath, { force: true });
+      try {
+        const currentSessions = await this.sessions.list().catch(() => new Set<number>());
+        const createdSessions = [...currentSessions].filter((id) => !existingSessions.has(id));
+        if (createdSessions.length) await this.sessions.stop(createdSessions);
+      } finally {
+        await rm(configurationPath, { force: true });
+      }
     }
+  }
+}
+
+export class NativeWindowsSandboxSessionController implements WindowsSandboxSessionController {
+  private readonly exec = promisify(execFile);
+
+  async list() {
+    const { stdout } = await this.exec("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", WINDOWS_SANDBOX_SESSION_QUERY], { windowsHide: true });
+    return parseWindowsSandboxSessionIds(stdout);
+  }
+
+  async stop(sessionIds: number[]) {
+    const ids = [...new Set(sessionIds)].filter((id) => Number.isSafeInteger(id) && id > 0);
+    if (!ids.length) return;
+    const command = `Stop-Process -Id ${ids.join(",")} -Force -ErrorAction SilentlyContinue; exit 0`;
+    await this.exec("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", command], { windowsHide: true });
   }
 }
 
