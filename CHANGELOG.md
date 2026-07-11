@@ -32,6 +32,7 @@ All notable NexusHarness changes are documented here. The format follows Keep a 
 - Added injectable lease-use and receipt-chain stores to routed file adapters so a composed cell can enforce single-use authority and one tamper-evident receipt chain across action kinds instead of accidentally isolating broker state per adapter.
 - Made the HR-005 real Windows Sandbox command probe emit a bounded redacted assertion matrix before failure, exposing receipt/result/exit/isolation/effect conditions and safe variance/evidence metadata without command or output content.
 - Hardened Windows Sandbox command bootstrap failures into structured stage/type diagnostics and replaced the nested `Start-Process` handoff with synchronous encoded PowerShell execution and explicit `$LASTEXITCODE` capture.
+- Repaired the Windows Sandbox command executor's launcher contract by replacing rejected dot-prefixed bootstrap/completion names with alphanumeric-first safe transport filenames and enforcing the real naming rules in its controlled-launcher tests.
 
 ## [2.0.0-beta.1] - 2026-07-11
 

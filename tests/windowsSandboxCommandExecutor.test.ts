@@ -81,6 +81,8 @@ async function commandFixture(options: { exitCode?: number; transportFailure?: b
   await writeFile(join(root, "tracked.txt"), "base\n"); await git(root, ["add", "."]); await git(root, ["commit", "-m", "base"]);
   const audit: BrokerAuditRecord[] = []; const approvals: Array<{ action: string; payload: unknown }> = []; let bootstrap = "";
   const launcher: SandboxCommandLauncher = { async launch(input) {
+    if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,199}\.ps1$/i.test(input.bootstrapScript)) throw new Error("Fixture rejected unsafe launcher bootstrap filename.");
+    if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,199}$/.test(input.completionFile)) throw new Error("Fixture rejected unsafe launcher completion filename.");
     bootstrap = await readFile(join(input.hostFolder, input.bootstrapScript), "utf8");
     if (!options.exitCode && !options.transportFailure) await writeFile(join(input.hostFolder, "generated.txt"), "generated\n");
     await writeFile(join(input.hostFolder, input.completionFile), JSON.stringify(options.transportFailure

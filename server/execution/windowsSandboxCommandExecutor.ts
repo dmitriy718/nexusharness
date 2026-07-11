@@ -182,8 +182,8 @@ export class WindowsSandboxCommandExecutor implements WindowsSandboxActionExecut
 
   private async launch(contractId: string, prepared: PreparedCommand): Promise<SandboxCommandResult> {
     const token = safeToken(contractId);
-    const bootstrapScript = `.nexus-${token}.ps1`;
-    const completionFile = `.nexus-${token}.result.json`;
+    const bootstrapScript = `nexus-${token}.bootstrap.ps1`;
+    const completionFile = `nexus-${token}.result.json`;
     const bootstrapPath = path.join(prepared.workingDirectory, bootstrapScript);
     const resultPath = path.join(prepared.workingDirectory, completionFile);
     const encoded = Buffer.from(prepared.command, "utf16le").toString("base64");
