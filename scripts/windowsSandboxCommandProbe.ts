@@ -61,9 +61,10 @@ try {
   await provider.authorize("command-probe", contract, lease);
   const receipt = await provider.execute("command-probe", contract, lease);
   const result = executor.takeResult("command-action");
+  const diagnostic = executor.takeDiagnostic("command-action");
   const effects = await provider.diff("command-probe");
   const primaryUnchanged = !(await exists(join(root, outputName)));
-  const execution = windowsSandboxCommandAssertionReport({ receipt, result, primaryUnchanged, effects: effects.effects, expectedTarget: outputName });
+  const execution = windowsSandboxCommandAssertionReport({ receipt, result, diagnostic, primaryUnchanged, effects: effects.effects, expectedTarget: outputName });
   console.log(JSON.stringify(execution, null, 2));
   if (!execution.executionPassed || !result) {
     throw new Error("Real Sandbox command did not satisfy receipt, result, isolation, and effect assertions.");

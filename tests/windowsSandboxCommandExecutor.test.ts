@@ -22,13 +22,18 @@ describe("Windows Sandbox command executor", () => {
     const receipt = await fixture.executor.execute({ cell: cell("executing"), workingDirectory: fixture.root, contract: action, lease: lease() });
     expect(receipt).toMatchObject({ status: "succeeded", observedEffects: [{ kind: "file.create", target: "generated.txt", status: "created" }] });
     expect(fixture.bootstrap).toContain("-EncodedCommand");
+    expect(fixture.bootstrap).toContain("$LASTEXITCODE");
+    expect(fixture.bootstrap).not.toContain("Start-Process");
     expect(fixture.bootstrap).not.toContain("safe-secret-command");
     expect(fixture.executor.takeResult("action-1")).toEqual({ exitCode: 0, stdout: "ok", stderr: "" });
     expect(fixture.executor.takeResult("action-1")).toBeUndefined();
+    expect(fixture.executor.takeDiagnostic("action-1")).toEqual({ stage: "complete", exitCode: 0 });
+    expect(fixture.executor.takeDiagnostic("action-1")).toBeUndefined();
     expect(fixture.approvals).toEqual([expect.objectContaining({ action: "shell.exec", payload: expect.objectContaining({ shell: "windows-sandbox:powershell.exe" }) })]);
     expect(JSON.stringify(fixture.audit)).not.toContain("safe-secret-command");
-    expect(windowsSandboxCommandAssertionReport({ receipt, result: { exitCode: 0, stdout: "not reported", stderr: "" }, primaryUnchanged: true, effects: receipt.observedEffects, expectedTarget: "generated.txt" })).toMatchObject({
+    expect(windowsSandboxCommandAssertionReport({ receipt, result: { exitCode: 0, stdout: "not reported", stderr: "" }, diagnostic: { stage: "complete", exitCode: 0 }, primaryUnchanged: true, effects: receipt.observedEffects, expectedTarget: "generated.txt" })).toMatchObject({
       executionPassed: true,
+      diagnostic: { stage: "complete", exitCode: 0 },
       checks: { receiptSucceeded: true, resultAvailable: true, exitCodeZero: true, primaryUnchanged: true, expectedEffectObserved: true }
     });
   });
@@ -53,18 +58,34 @@ describe("Windows Sandbox command executor", () => {
     expect(JSON.stringify(report)).not.toContain("raw-secret-error");
     expect(report).not.toHaveProperty("stdout");
     expect(report).not.toHaveProperty("stderr");
+    expect(fixture.executor.takeDiagnostic("action-1")).toMatchObject({ stage: "guest-exit", exitCode: 7, errorType: "Error" });
+  });
+
+  it("returns a sanitized guest-bootstrap stage without raw transport errors", async () => {
+    const fixture = await commandFixture({ transportFailure: true });
+    const registration = fixture.executor.register("action-1", { command: "Write-Output safe", settings: fixture.settings });
+    const action = contract(registration.payloadDigest, { expectedEffects: [] });
+    await fixture.executor.authorize!({ cell: cell("isolated"), workingDirectory: fixture.root, contract: action, lease: lease() });
+    const receipt = await fixture.executor.execute({ cell: cell("executing"), workingDirectory: fixture.root, contract: action, lease: lease() });
+    const diagnostic = fixture.executor.takeDiagnostic("action-1");
+
+    expect(receipt.status).toBe("failed");
+    expect(diagnostic).toEqual({ stage: "guest-bootstrap", exitCode: null, guestStage: "invalid", errorType: "System.InvalidOperationException" });
+    expect(JSON.stringify({ receipt, diagnostic })).not.toContain("raw transport details");
   });
 });
 
-async function commandFixture(options: { exitCode?: number } = {}) {
+async function commandFixture(options: { exitCode?: number; transportFailure?: boolean } = {}) {
   const root = await mkdtemp(join(tmpdir(), "nexus-sandbox-command-")); roots.push(root);
   await git(root, ["init", "-b", "main"]); await git(root, ["config", "user.name", "Test"]); await git(root, ["config", "user.email", "test@example.invalid"]);
   await writeFile(join(root, "tracked.txt"), "base\n"); await git(root, ["add", "."]); await git(root, ["commit", "-m", "base"]);
   const audit: BrokerAuditRecord[] = []; const approvals: Array<{ action: string; payload: unknown }> = []; let bootstrap = "";
   const launcher: SandboxCommandLauncher = { async launch(input) {
     bootstrap = await readFile(join(input.hostFolder, input.bootstrapScript), "utf8");
-    if (!options.exitCode) await writeFile(join(input.hostFolder, "generated.txt"), "generated\n");
-    await writeFile(join(input.hostFolder, input.completionFile), JSON.stringify({ exitCode: options.exitCode ?? 0, stdout: "ok", stderr: options.exitCode ? "guest failure" : "" }));
+    if (!options.exitCode && !options.transportFailure) await writeFile(join(input.hostFolder, "generated.txt"), "generated\n");
+    await writeFile(join(input.hostFolder, input.completionFile), JSON.stringify(options.transportFailure
+      ? { exitCode: null, stdout: "", stderr: "", transportStatus: "failed", transportStage: "raw transport details", transportErrorType: "System.InvalidOperationException" }
+      : { exitCode: options.exitCode ?? 0, stdout: "ok", stderr: options.exitCode ? "guest failure" : "", transportStatus: "completed", transportStage: "complete" }));
   } };
   const settings = settingsFixture(root);
   const executor = new WindowsSandboxCommandExecutor({ configurationDirectory: join(root, "..", "config"), launcher, brokerAudit: { async append(record) { audit.push(record); } }, authorize: async (_settings, action, _risk, payload) => { approvals.push({ action, payload }); }, now: () => new Date(at), id: () => "receipt-1" });
