@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
-import { WindowsSandboxLauncher } from "../server/execution/windowsSandboxProvider.js";
+import { WindowsSandboxLauncher, parseWindowsSandboxJson } from "../server/execution/windowsSandboxProvider.js";
 
 if (process.platform !== "win32") throw new Error("The Windows Sandbox probe requires a Windows host.");
 
@@ -30,14 +30,14 @@ try {
     memoryMb: 4096,
     timeoutMs: 5 * 60_000
   });
-  const result = JSON.parse(await readFile(resultPath, "utf8")) as {
+  const result = parseWindowsSandboxJson<{
     seedRead: boolean;
     mappedWrite: boolean;
     networkBlocked: boolean;
     sandboxIdentity: boolean;
     user: string;
     error?: string;
-  };
+  }>(await readFile(resultPath, "utf8"));
   const hostWriteback = (await readFile(join(cell, "writeback.txt"), "utf8")).trim() === "sandbox-writeback";
   const passed = result.seedRead && result.mappedWrite && hostWriteback && result.networkBlocked && result.sandboxIdentity && !result.error;
   console.log(JSON.stringify({ ...result, hostWriteback, passed }, null, 2));
@@ -67,7 +67,8 @@ try {
 } catch {
   $result.error = $_.Exception.GetType().FullName
 } finally {
-  $result | ConvertTo-Json -Compress | Set-Content -LiteralPath 'C:\NexusCell\result.json' -Encoding UTF8
+  $json = $result | ConvertTo-Json -Compress
+  [System.IO.File]::WriteAllText('C:\NexusCell\result.json', $json, [System.Text.UTF8Encoding]::new($false))
 }
 `;
 }
