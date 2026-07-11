@@ -281,18 +281,23 @@ export class PortableWorktreeProvider implements ExecutionCellProvider {
     const recovered: ExecutionCell[] = [];
     for (const name of (await readdir(this.recordsRoot)).filter((item) => item.endsWith(".json")).sort()) {
       const cellId = name.slice(0, -5);
-      await this.withCellLock(cellId, async () => {
-        const record = await this.readRecord(cellId);
-        if (["destroyed", "committed", "rolled_back", "failed"].includes(record.cell.state)) {
-          recovered.push(record.cell);
-          return;
-        }
-        const worktreeAvailable = await exists(record.worktreePath) && (await this.runGit(record.worktreePath, ["rev-parse", "--is-inside-work-tree"], [0, 128])).code === 0;
-        if (!worktreeAvailable || ["preparing", "executing", "verifying"].includes(record.cell.state)) await this.updateState(record, "failed");
-        recovered.push(record.cell);
-      });
+      recovered.push(await this.recoverCell(cellId));
     }
     return recovered;
+  }
+
+  async recoverCell(cellId: string, expectedObjectiveId?: string): Promise<ExecutionCell> {
+    await this.initialize();
+    return this.withCellLock(cellId, async () => {
+      const record = await this.readRecord(cellId);
+      if (expectedObjectiveId && record.spec.objectiveId !== expectedObjectiveId) {
+        throw new Error(`Execution cell ${cellId} belongs to a different objective.`);
+      }
+      if (["destroyed", "committed", "rolled_back", "failed"].includes(record.cell.state)) return record.cell;
+      const worktreeAvailable = await exists(record.worktreePath) && (await this.runGit(record.worktreePath, ["rev-parse", "--is-inside-work-tree"], [0, 128])).code === 0;
+      if (!worktreeAvailable || ["preparing", "executing", "verifying"].includes(record.cell.state)) await this.updateState(record, "failed");
+      return record.cell;
+    });
   }
 
   private async initialize() {

@@ -136,6 +136,40 @@ describe("run execution coordinator", () => {
     await expect(access(join(fixture.data, "worktrees", coordinator.cellId))).rejects.toThrow();
     await expect(coordinator.prepare()).rejects.toThrow("cannot be prepared again");
   }, 20_000);
+
+  it("discards an interrupted cell and starts a distinct proof attempt after restart", async () => {
+    const fixture = await repository();
+    let id = 0;
+    const options = {
+      runId: "restarted-run",
+      settings: settings(fixture.root),
+      dataRoot: fixture.data,
+      validationCommands: [commands().pass],
+      brokerAudit: { append: async () => undefined },
+      authorize: async () => undefined,
+      toolAudit: async () => undefined,
+      persist: async () => undefined,
+      id: () => `restart-record-${++id}`
+    };
+    const interrupted = new RunExecutionCoordinator(options);
+    await interrupted.prepare();
+    await interrupted.write("interrupted.txt", "discard me\n");
+    const interruptedCellId = interrupted.cellId;
+
+    const restarted = new RunExecutionCoordinator({ ...options, cellIdentity: "restarted-run:attempt-2" });
+    expect(restarted.cellId).not.toBe(interruptedCellId);
+    expect(restarted.objectiveId).toBe(interrupted.objectiveId);
+    await expect(restarted.recoverAndDiscard(interruptedCellId)).resolves.toMatchObject({ id: interruptedCellId, state: "failed" });
+    await expect(access(join(fixture.data, "worktrees", interruptedCellId))).rejects.toThrow();
+    await expect(access(join(fixture.root, "interrupted.txt"))).rejects.toThrow();
+
+    await restarted.prepare();
+    await restarted.write("replacement.txt", "replacement\n");
+    await restarted.validate(commands().pass);
+    await restarted.commit();
+    await restarted.destroy();
+    expect(await readFile(join(fixture.root, "replacement.txt"), "utf8")).toBe("replacement\n");
+  }, 20_000);
 });
 
 async function coordinatorFixture(overrides: { authorize?: () => Promise<void>; validationCommands?: string[] } = {}) {

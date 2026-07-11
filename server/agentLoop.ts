@@ -360,15 +360,56 @@ function hasRecoverablePersistedCell(run: TaskRun): boolean {
   return Boolean(run.execution && run.execution.state !== "destroyed");
 }
 
+async function persistExecutionSummary(store: StoreShape, runId: string, summary: NonNullable<TaskRun["execution"]>): Promise<void> {
+  const latest = await loadStore();
+  attachRunExecutionSummary(latest, runId, summary);
+  await saveStore(latest);
+  attachRunExecutionSummary(store, runId, summary);
+}
+
+function destroyedRecoverySummary(summary: NonNullable<TaskRun["execution"]>, recoveredState: string): NonNullable<TaskRun["execution"]> {
+  const updatedAt = new Date(Math.max(Date.now(), Date.parse(summary.updatedAt) + 1)).toISOString();
+  return {
+    ...structuredClone(summary),
+    state: "destroyed",
+    evidence: [
+      ...summary.evidence.slice(-249),
+      {
+        kind: "custom",
+        name: summary.state === "committed" || recoveredState === "committed" ? "Committed restart recovery" : "Restart recovery",
+        status: "warning",
+        detail: `The process restarted without durable action authority or receipts. The ${recoveredState} portable cell was discarded and cannot be promoted.`
+      }
+    ],
+    commit: { available: false, reason: "Recovered cell was discarded because in-memory proof state was unavailable after restart." },
+    rollback: { available: false, reason: "Recovered cell resources were destroyed." },
+    updatedAt
+  };
+}
+
+function resetRunAttempt(run: TaskRun): void {
+  run.phase = "execute";
+  run.iteration = 0;
+  delete run.subtaskResults;
+  delete run.executorOutput;
+  delete run.criticFeedback;
+  delete run.criticScore;
+  delete run.validationOutput;
+  delete run.result;
+  delete run.error;
+}
+
 async function prepareRunTransaction(run: TaskRun, store: StoreShape, config: AgentExecutionConfig): Promise<RunExecutionCoordinator> {
   const existing = activeTransactions.get(run.id);
   if (existing) return existing;
   if (config.mode !== "transactional" || !config.dataRoot) throw new Error("Transactional execution is not configured for this run.");
-  if (hasRecoverablePersistedCell(run)) {
-    throw new Error(`Run ${run.id} has persisted ${run.execution!.state} transaction state but no live coordinator. Restart recovery must complete before this run can resume.`);
+  const priorExecution = run.execution ? structuredClone(run.execution) : undefined;
+  if (priorExecution?.state === "destroyed" && priorExecution.evidence.some((item) => item.name === "Committed restart recovery")) {
+    throw new Error("This run committed before an earlier restart and cannot be automatically re-executed. Duplicate it only after reviewing the promoted effects.");
   }
   const coordinator = new RunExecutionCoordinator({
     runId: run.id,
+    ...(priorExecution ? { cellIdentity: `${run.id}:${priorExecution.cellId}:${priorExecution.updatedAt}` } : {}),
     settings: store.settings,
     dataRoot: executionDataRoot(config.dataRoot, store.settings.workspaceRoot),
     brokerAudit: {
@@ -392,13 +433,30 @@ async function prepareRunTransaction(run: TaskRun, store: StoreShape, config: Ag
       }
     },
     toolAudit: audit,
-    persist: async (persistedRunId, summary) => {
-      const latest = await loadStore();
-      attachRunExecutionSummary(latest, persistedRunId, summary);
-      await saveStore(latest);
-      attachRunExecutionSummary(store, persistedRunId, summary);
-    }
+    persist: (persistedRunId, summary) => persistExecutionSummary(store, persistedRunId, summary)
   });
+  if (priorExecution && priorExecution.state !== "destroyed") {
+    if (priorExecution.provider !== "portable-worktree") {
+      throw new Error(`Automatic restart recovery is unavailable for ${priorExecution.provider} cells.`);
+    }
+    const recovered = await coordinator.recoverAndDiscard(priorExecution.cellId);
+    await persistExecutionSummary(store, run.id, destroyedRecoverySummary(priorExecution, recovered.state));
+    await audit({
+      actor: "system",
+      action: "execution.transaction.recovered",
+      risk: "execute",
+      status: "ok",
+      message: run.id,
+      details: { cellId: priorExecution.cellId, recoveredState: recovered.state, discarded: true, proofRestored: false }
+    });
+    if (priorExecution.state === "committed") {
+      throw new Error("The interrupted transaction had already committed before restart. Its cell was cleaned up, but automatic re-execution is blocked to prevent duplicate effects.");
+    }
+  }
+  if (priorExecution) {
+    resetRunAttempt(run);
+    await saveRunProgress(run);
+  }
   await coordinator.prepare();
   activeTransactions.set(run.id, coordinator);
   await audit({
@@ -534,12 +592,12 @@ export async function executeRun(runId: string) {
   }
   let transaction = activeTransactions.get(runId);
   try {
-    if (!transaction && hasRecoverablePersistedCell(run)) {
-      throw new Error(`Run ${run.id} has persisted ${run.execution!.state} transaction state but no live coordinator. Restart recovery must complete before this run can resume.`);
-    }
     const executionConfig: AgentExecutionConfig = transaction
       ? { mode: "transactional" }
       : resolveAgentExecutionConfig();
+    if (!transaction && hasRecoverablePersistedCell(run) && executionConfig.mode !== "transactional") {
+      throw new Error("This run has a persisted portable transaction. Set NEXUSHARNESS_EXECUTION_MODE=transactional and restore its external execution directory before resuming.");
+    }
     await audit({
       actor: "system",
       action: "execution.mode.selected",
