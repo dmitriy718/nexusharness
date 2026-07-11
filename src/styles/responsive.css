@@ -397,6 +397,26 @@
     grid-template-columns: 1fr;
   }
 
+  .workspace-boundary {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .workspace-boundary > strong {
+    grid-column: 2;
+  }
+
+  .workspace-preview-v2 .path-details {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .workspace-preview-v2 .path-details > div:nth-child(2n) {
+    border-right: 0;
+  }
+
+  .workspace-actions .button {
+    width: 100%;
+  }
+
   .assignment-savebar .button {
     flex: 1;
   }

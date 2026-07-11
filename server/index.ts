@@ -8,7 +8,7 @@ import { memorySchema, mcpServerSchema, runtimeSchema, settingsSchema, taskSchem
 import { listRuntimeModels, validateRuntimeConnection } from "./runtimeAdapters.js";
 import { discoverMcpServers, listMcpTools } from "./mcpClient.js";
 import { cancelRun, executeRun, isRunActive, startTask } from "./agentLoop.js";
-import { workspaceTree } from "./localTools.js";
+import { previewWorkspaceFile, searchWorkspace, workspaceEntries, workspaceTree } from "./localTools.js";
 import type { McpServerConfig } from "./types.js";
 import { buildInfo } from "./version.js";
 
@@ -264,6 +264,31 @@ app.get("/api/workspace/tree", asyncRoute(async (_req, res) => {
   res.json(await workspaceTree(store.settings));
 }));
 
+app.get("/api/workspace/entries", asyncRoute(async (req, res) => {
+  const store = await loadStore();
+  const relativePath = String(req.query.path ?? ".");
+  const entries = await workspaceEntries(store.settings, relativePath);
+  await audit({ actor: "operator", action: "workspace.browse", risk: "read", status: "ok", message: relativePath, details: { entries: entries.length } });
+  res.json(entries);
+}));
+
+app.get("/api/workspace/search", asyncRoute(async (req, res) => {
+  const store = await loadStore();
+  const query = String(req.query.q ?? "").trim();
+  if (!query) return res.status(400).json({ error: "Workspace search requires a non-empty q parameter." });
+  const results = await searchWorkspace(store.settings, query);
+  res.json(results);
+}));
+
+app.get("/api/workspace/preview", asyncRoute(async (req, res) => {
+  const store = await loadStore();
+  const relativePath = String(req.query.path ?? "");
+  if (!relativePath) return res.status(400).json({ error: "Workspace preview requires a path parameter." });
+  const preview = await previewWorkspaceFile(store.settings, relativePath);
+  await audit({ actor: "operator", action: "workspace.preview", risk: "read", status: "ok", message: relativePath, details: { bytes: preview.size, truncated: preview.truncated, binary: preview.binary } });
+  res.json(preview);
+}));
+
 app.post("/api/approvals/:id/:decision", asyncRoute(async (req, res) => {
   const id = String(req.params.id);
   const decision = String(req.params.decision);
@@ -298,7 +323,8 @@ app.get("*", (_req, res) => {
 app.use((error: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   void _next;
   const message = error?.issues ? error.issues : error?.message ?? String(error);
-  const status = error?.issues || error instanceof SyntaxError ? 400 : Number(error?.status ?? 500);
+  const workspaceInputError = typeof message === "string" && /^(Path escapes workspace root|Cannot resolve workspace path safely|Path is not (?:a directory|a regular file)|Symbolic links are not previewed)/.test(message);
+  const status = error?.issues || error instanceof SyntaxError || workspaceInputError ? 400 : Number(error?.status ?? 500);
   res.status(status >= 400 && status <= 599 ? status : 500).json({ error: message });
 });
 

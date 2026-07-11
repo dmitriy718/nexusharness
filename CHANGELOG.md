@@ -14,6 +14,7 @@ All notable NexusHarness changes are documented here. The format follows Keep a 
 - Full local audit ledger with actor/risk/status/action filters, chronological sorting, run and target linkage, a formatted event drawer, responsive windowing, and explicitly scoped redacted JSON export.
 - Guided runtime setup that tests without persistence, reviews discovered models before save, reports session health/latency, exposes searchable capabilities, and provides explicit-save agent assignments with tool compatibility guidance.
 - Bounded MCP discovery with real chunk progress and cancellation, HTTP/stdio guided setup, inspected server details, searchable risk-classified tools, JSON schemas, protected bulk/per-tool toggles, and a separate local-tool policy view.
+- Safe lazy workspace explorer with bounded server search, keyboard expansion, breadcrumbs, file metadata, line-numbered/binary-aware previews, explicit symlink blocking, path copy, parent reveal, and run-draft context handoff.
 
 ### Changed
 
@@ -25,6 +26,7 @@ All notable NexusHarness changes are documented here. The format follows Keep a 
 - Approval decisions preserve their run and subtask context in the audit ledger, and the compact state poll no longer limits the dedicated audit view to 200 events.
 - Runtime removal now identifies and clears affected agent roles, while unavailable saved assignments remain visible instead of silently appearing unassigned.
 - MCP client identity now follows the synchronized application version instead of advertising the legacy v0.1.0 identifier.
+- Workspace path-policy violations now return actionable HTTP 400 responses while preserving the resolved-root and symbolic-link boundary checks.
 
 ## [2.0.0-alpha.1] - 2026-07-11
 
