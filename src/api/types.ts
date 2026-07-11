@@ -143,6 +143,20 @@ export type BuildHealth = {
 export type WorkspaceNode = {
   name: string;
   path: string;
-  type: "file" | "directory";
+  type: "file" | "directory" | "symlink";
+  size?: number;
+  modifiedAt?: string;
+  blocked?: boolean;
   children?: WorkspaceNode[];
+};
+
+export type WorkspacePreview = {
+  name: string;
+  path: string;
+  size: number;
+  modifiedAt: string;
+  binary: boolean;
+  truncated: boolean;
+  content: string;
+  language: string;
 };

@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
-import { lstat, mkdir, readFile, readdir, realpath, rm, stat, writeFile } from "node:fs/promises";
+import { lstat, mkdir, open, readFile, readdir, realpath, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { nanoid } from "nanoid";
 import { createTwoFilesPatch } from "diff";
@@ -215,4 +215,84 @@ export async function workspaceTree(settings: Settings, relativePath = ".", dept
       children: entry.isDirectory() && depth > 0 ? await workspaceTree(settings, childRel, depth - 1, budget) : []
     };
   }));
+}
+
+function workspaceRelative(value: string): string {
+  return value.replaceAll("\\", "/").replace(/^\.\//, "");
+}
+
+export async function workspaceEntries(settings: Settings, relativePath = ".") {
+  const directory = await resolveInsideRealWorkspace(settings.workspaceRoot, relativePath);
+  const directoryStat = await stat(directory);
+  if (!directoryStat.isDirectory()) throw new Error(`Path is not a directory: ${relativePath}`);
+  const entries = (await readdir(directory, { withFileTypes: true })).sort((left, right) => {
+    if (left.isDirectory() !== right.isDirectory()) return left.isDirectory() ? -1 : 1;
+    return left.name.localeCompare(right.name);
+  }).slice(0, 2000);
+  return Promise.all(entries.map(async (entry) => {
+    const childPath = workspaceRelative(path.join(relativePath, entry.name));
+    const childStat = await lstat(path.join(directory, entry.name));
+    return {
+      name: entry.name,
+      path: childPath,
+      type: entry.isSymbolicLink() ? "symlink" : entry.isDirectory() ? "directory" : "file",
+      size: childStat.size,
+      modifiedAt: childStat.mtime.toISOString(),
+      blocked: entry.isSymbolicLink()
+    };
+  }));
+}
+
+export async function searchWorkspace(settings: Settings, query: string, limit = 100) {
+  const normalized = query.trim().toLowerCase();
+  if (!normalized) return [];
+  const root = await realpath(path.resolve(settings.workspaceRoot));
+  const pending = ["."];
+  const results: Awaited<ReturnType<typeof workspaceEntries>> = [];
+  let visited = 0;
+  while (pending.length && results.length < limit && visited < 5000) {
+    const relativePath = pending.shift()!;
+    const directory = resolveInside(root, relativePath);
+    const entries = await readdir(directory, { withFileTypes: true }).catch(() => []);
+    visited += entries.length;
+    for (const entry of entries) {
+      if (results.length >= limit) break;
+      const childPath = workspaceRelative(path.join(relativePath, entry.name));
+      if (entry.isDirectory() && !entry.isSymbolicLink()) pending.push(childPath);
+      if (!entry.name.toLowerCase().includes(normalized) && !childPath.toLowerCase().includes(normalized)) continue;
+      const childStat = await lstat(path.join(directory, entry.name));
+      results.push({ name: entry.name, path: childPath, type: entry.isSymbolicLink() ? "symlink" : entry.isDirectory() ? "directory" : "file", size: childStat.size, modifiedAt: childStat.mtime.toISOString(), blocked: entry.isSymbolicLink() });
+    }
+  }
+  return results;
+}
+
+export async function previewWorkspaceFile(settings: Settings, relativePath: string) {
+  const lexicalPath = resolveInside(settings.workspaceRoot, relativePath);
+  const lexicalStat = await lstat(lexicalPath);
+  if (lexicalStat.isSymbolicLink()) throw new Error("Symbolic links are not previewed because their target can change outside the visible tree.");
+  const filePath = await resolveInsideRealWorkspace(settings.workspaceRoot, relativePath);
+  const fileStat = await stat(filePath);
+  if (!fileStat.isFile()) throw new Error(`Path is not a regular file: ${relativePath}`);
+  const limit = 200_000;
+  const length = Math.min(fileStat.size, limit);
+  const buffer = Buffer.alloc(length);
+  const handle = await open(filePath, "r");
+  try {
+    await handle.read(buffer, 0, length, 0);
+  } finally {
+    await handle.close();
+  }
+  const binary = buffer.includes(0);
+  const extension = path.extname(relativePath).slice(1).toLowerCase();
+  return {
+    name: path.basename(relativePath),
+    path: workspaceRelative(relativePath),
+    size: fileStat.size,
+    modifiedAt: fileStat.mtime.toISOString(),
+    binary,
+    truncated: fileStat.size > limit,
+    content: binary ? "" : buffer.toString("utf8"),
+    language: extension || "text"
+  };
 }
