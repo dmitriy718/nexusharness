@@ -36,6 +36,7 @@ All notable NexusHarness changes are documented here. The format follows Keep a 
 - Accepted HR-005 real-host evidence for brokered Windows Sandbox PowerShell execution, observed file effects, unchanged-primary isolation, redacted diagnostics, receipt-gated commit, promotion, and audit linkage.
 - Added a broker-enforced portable validation-command adapter restricted to an exact trusted allowlist, explicit shell capability, no network/secrets, bounded output/runtime, shared authority stores, one-use results, and blocking rejection of any Git-visible repository mutation.
 - Added a run-scoped portable transaction coordinator that owns one cell across workspace reads, deterministic writes/deletes, allowlisted validation, persisted lifecycle summaries, mandatory validation-before-promotion, receipt-gated commit, rollback, and teardown.
+- Added explicit live agent execution selection through `NEXUSHARNESS_EXECUTION_MODE`: compatibility remains the default, while opt-in transactional runs require an external absolute data root, serialize executor subtasks into one disposable cell, route file actions and configured validation through the coordinator, persist proof state, promote only after validation and critic acceptance, and clean up on completion, failure, cancellation, or approval rejection. Arbitrary model shell and MCP remain unavailable in this portable mode because it is not an operating-system security boundary and cannot compensate remote effects.
 
 ## [2.0.0-beta.1] - 2026-07-11
 
