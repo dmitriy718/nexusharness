@@ -4,19 +4,7 @@ This file records work that requires the project owner and cannot be completed s
 
 ## Current blocking actions
 
-### HR-001 — Representative v2 visual review
-
-- **Status:** Ready and blocking broad feature rollout.
-- **Owner action:** Start the application with npm run dev, then review:
-  1. http://127.0.0.1:5173/dashboard at approximately 1440 px, 1024 px, and 390 px widths.
-  2. http://127.0.0.1:5173/onboarding.
-  3. Open any run from http://127.0.0.1:5173/runs.
-  4. http://127.0.0.1:5173/approvals. The detailed review appears when a real run has a pending approval.
-  5. Keyboard focus visibility and the mobile navigation drawer.
-- **Decision needed:** Reply with approval of the Midnight Prism direction or list concrete revisions. Studio and Orchestrate are intentionally labeled Preview at this checkpoint.
-- **Why human input is required:** Visual preference and brand acceptance belong to the owner.
-- **Agent verification already completed:** Lint, tests, TypeScript, production build, isolated production runtime, desktop dashboard/onboarding/run/approval rendering, and responsive shell inspection.
-- **Blocks:** Phase 4 and later broad feature rollout.
+None.
 
 ## Scheduled owner checkpoints
 
@@ -38,7 +26,12 @@ This file records work that requires the project owner and cannot be completed s
 
 ## Completed actions
 
-None yet.
+### HR-001 — Representative v2 visual review
+
+- **Status:** Approved by the owner on 2026-07-11.
+- **Decision:** Midnight Prism direction approved.
+- **Evidence reviewed:** Dashboard, onboarding, run detail, approvals, responsive shell, focus visibility, and mobile navigation checkpoint.
+- **Result:** Broad feature rollout is unblocked. Studio and Orchestrate remain clearly labeled Preview until their implementation gates pass.
 
 ## Entry requirements
 
