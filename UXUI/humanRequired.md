@@ -8,6 +8,15 @@ None.
 
 ## Scheduled owner checkpoints
 
+### HR-005 — Real Windows Sandbox command-provider smoke
+
+- **Status:** Ready for owner action after this probe is pushed.
+- **Owner action:** From `D:\projects\nexus`, run `npm run test:windows-sandbox-command`. A Sandbox window should open and close automatically.
+- **Expected result:** Final JSON reports `receipt: "succeeded"`, `exitCode: 0`, `primaryUnchanged: true`, a `file.create` effect for `sandbox-command-output.txt`, `commit: "committed"`, `promoted: true`, and `passed: true`, followed by `Windows Sandbox command provider probe passed.`
+- **Evidence to return:** `HR-005: Pass` with the JSON, or `HR-005: Fail` with complete terminal output.
+- **Why human input is required:** This test launches a visible real Sandbox VM and validates end-to-end command transport and promotion beyond the launcher-only HR-004 boundary.
+- **Blocks:** Selecting the Windows command executor for live validation runs.
+
 ### HR-003 — v2.0.0 release-candidate approval
 
 - **Status:** Pending; not yet ready.
