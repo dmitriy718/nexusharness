@@ -19,6 +19,7 @@ All notable NexusHarness changes are documented here. The format follows Keep a 
 - Seven routed settings sections with persistent labels/units/bounds, section defaults, synchronized build facts, approval-off confirmation, sticky Save/Discard state, and navigation/unload protection for unsaved drafts.
 - Categorized API failures, distinct boot/online/reconnecting/stale/offline states, freshness indicators, retry/copy/dismiss recovery, accessible toasts, reference-stable compact polling, and draft preservation across unrelated live updates.
 - Three truthful run workspaces: Focus for narrative inspection, Studio for bounded real-workspace browsing and file context, and Orchestrate for saved subtask, agent, approval, and audit activity.
+- A production accessibility gate that scans every major route and populated workflow state with axe, plus checks semantic contrast, keyboard behavior, focus containment and return, 320 px reflow, 200% zoom, reduced motion, and touch targets.
 
 ### Changed
 
@@ -31,6 +32,7 @@ All notable NexusHarness changes are documented here. The format follows Keep a 
 - Runtime removal now identifies and clears affected agent roles, while unavailable saved assignments remain visible instead of silently appearing unassigned.
 - MCP client identity now follows the synchronized application version instead of advertising the legacy v0.1.0 identifier.
 - Workspace path-policy violations now return actionable HTTP 400 responses while preserving the resolved-root and symbolic-link boundary checks.
+- Strengthened route announcements, visible focus, modal navigation and audit focus handling, arrow-key tabs, field-error associations, disclosure-list workspace semantics, secondary-text contrast, and coarse-pointer targets.
 
 ## [2.0.0-alpha.1] - 2026-07-11
 

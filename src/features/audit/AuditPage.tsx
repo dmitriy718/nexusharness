@@ -1,10 +1,11 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { Check, ChevronRight, Clipboard, Download, Filter, RefreshCw, Search, ShieldCheck, X } from "lucide-react";
 import { api, errorMessage } from "../../api/client";
 import type { AuditEvent } from "../../api/types";
 import { useHarness } from "../../app/StoreProvider";
-import { EmptyState, InlineAlert, PageHeader, StatusBadge, formatDate, shortId } from "../../components/ui";
+import { EmptyState, InlineAlert, PageHeader, StatusBadge, formatDate, handleTabListKeyDown, shortId } from "../../components/ui";
+import { useFocusTrap } from "../../components/useFocusTrap";
 import {
   auditRecords,
   exportAuditRecords,
@@ -126,6 +127,8 @@ function AuditTableRow({ record, selected, onSelect }: { record: AuditRecord; se
 
 function AuditInspector({ record, close, notify }: { record: AuditRecord; close: () => void; notify: (message: string, tone?: "success" | "danger" | "info") => void }) {
   const [tab, setTab] = useState<"details" | "raw">("details");
+  const inspectorRef = useRef<HTMLElement>(null);
+  useFocusTrap(true, inspectorRef, close);
   const { event, runId, target } = record;
   const redacted = redactAuditValue(event.details);
   const copy = async () => {
@@ -136,11 +139,11 @@ function AuditInspector({ record, close, notify }: { record: AuditRecord; close:
       notify(`Copy failed: ${errorMessage(caught)}`, "danger");
     }
   };
-  return <aside className="audit-inspector" aria-labelledby="audit-inspector-title">
+  return <aside ref={inspectorRef} className="audit-inspector" role="dialog" aria-modal="true" tabIndex={-1} aria-labelledby="audit-inspector-title">
     <header><div><p className="eyebrow">Event detail</p><h2 id="audit-inspector-title">{humanAuditAction(event.action)}</h2></div><button className="icon-button" aria-label="Close event detail" onClick={close}><X /></button></header>
     <div className="audit-inspector-summary"><span className={`actor-mark actor-${event.actor}`}>{event.actor.slice(0, 1).toUpperCase()}</span><div><strong>{event.actor}</strong><time dateTime={event.at}>{formatDate(event.at)}</time></div><StatusBadge status={event.status} /></div>
     <dl className="audit-facts"><div><dt>Risk</dt><dd><StatusBadge status={event.risk} /></dd></div><div><dt>Event ID</dt><dd><code>{event.id}</code></dd></div>{runId && <div><dt>Run</dt><dd><Link to={`/runs/${runId}`}>Open run #{shortId(runId)}</Link></dd></div>}{target && <div><dt>Target</dt><dd><code>{String(redactAuditValue(target))}</code></dd></div>}<div><dt>Message</dt><dd>{String(redactAuditValue(event.message))}</dd></div></dl>
-    <div className="preview-tabs" role="tablist" aria-label="Event data view"><button role="tab" aria-selected={tab === "details"} className={tab === "details" ? "active" : ""} onClick={() => setTab("details")}>Formatted</button><button role="tab" aria-selected={tab === "raw"} className={tab === "raw" ? "active" : ""} onClick={() => setTab("raw")}>Redacted raw</button></div>
+    <div className="preview-tabs" role="tablist" aria-label="Event data view" onKeyDown={handleTabListKeyDown}><button role="tab" tabIndex={tab === "details" ? 0 : -1} aria-selected={tab === "details"} className={tab === "details" ? "active" : ""} onClick={() => setTab("details")}>Formatted</button><button role="tab" tabIndex={tab === "raw" ? 0 : -1} aria-selected={tab === "raw"} className={tab === "raw" ? "active" : ""} onClick={() => setTab("raw")}>Redacted raw</button></div>
     {tab === "details" ? <FormattedDetails details={redacted} /> : <pre className="raw-payload">{JSON.stringify(redacted, null, 2)}</pre>}
     <footer><span><ShieldCheck />Sensitive fields and inline credentials are redacted.</span><button className="button secondary" onClick={() => void copy()}><Clipboard />Copy redacted event</button></footer>
   </aside>;

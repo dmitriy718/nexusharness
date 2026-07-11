@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 import {
   Activity,
@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import { useHarness } from "./StoreProvider";
 import { failureDetails, freshnessLabel } from "../features/feedback/feedbackModel";
+import { useFocusTrap } from "../components/useFocusTrap";
 
 const destinations = [
   { to: "/dashboard", label: "Overview", icon: Gauge },
@@ -42,24 +43,38 @@ export function AppShell() {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const location = useLocation();
+  const navRef = useRef<HTMLElement>(null);
+  const openNavigationRef = useRef<HTMLButtonElement>(null);
+  const mainRef = useRef<HTMLElement>(null);
+  const previousPath = useRef(location.pathname);
   const pending = store?.approvals.filter((item) => item.decision === "pending").length ?? 0;
   const activeRun = store?.runs.find((run) => run.status === "running" || run.status === "waiting_approval");
   const versionMismatch = health && health.version !== __NEXUSHARNESS_BUILD__.version;
   const failureInfo = error ? failureDetails(failure ?? new Error(error)) : null;
 
-  const closeMobile = () => setMobileOpen(false);
+  const closeMobile = useCallback(() => setMobileOpen(false), []);
+  useFocusTrap(mobileOpen, navRef, closeMobile);
+
+  useEffect(() => {
+    const label = destinations.find((item) => location.pathname === item.to || (item.to === "/runs" && location.pathname.startsWith("/runs/")))?.label ?? "NexusHarness";
+    document.title = `${location.pathname.startsWith("/runs/") ? "Run detail" : label} · NexusHarness`;
+    if (previousPath.current !== location.pathname) {
+      previousPath.current = location.pathname;
+      window.requestAnimationFrame(() => mainRef.current?.focus());
+    }
+  }, [location.pathname]);
 
   return (
     <div className={"app-shell" + (collapsed ? " nav-collapsed" : "")}>
       <a className="skip-link" href="#main-content">Skip to main content</a>
       <header className="mobile-bar">
-        <button className="icon-button" aria-label="Open navigation" onClick={() => setMobileOpen(true)}><Menu /></button>
+        <button ref={openNavigationRef} className="icon-button" aria-label="Open navigation" aria-expanded={mobileOpen} aria-controls="primary-navigation" onClick={() => setMobileOpen(true)}><Menu /></button>
         <Brand compact />
         {pending > 0 && <NavLink to="/approvals" className="attention-count" aria-label={pending + " pending approvals"}>{pending}</NavLink>}
       </header>
 
       {mobileOpen && <button className="nav-scrim" aria-label="Close navigation" onClick={closeMobile} />}
-      <aside className={"app-nav" + (mobileOpen ? " mobile-open" : "")}>
+      <aside ref={navRef} id="primary-navigation" className={"app-nav" + (mobileOpen ? " mobile-open" : "")} role={mobileOpen ? "dialog" : undefined} aria-modal={mobileOpen ? true : undefined} aria-label={mobileOpen ? "Primary navigation" : undefined} tabIndex={mobileOpen ? -1 : undefined}>
         <div className="nav-head">
           <Brand compact={collapsed} />
           <button className="icon-button mobile-close" aria-label="Close navigation" onClick={closeMobile}><X /></button>
@@ -118,17 +133,20 @@ export function AppShell() {
           </div>
         )}
 
-        <main id="main-content" tabIndex={-1}>
+        <main ref={mainRef} id="main-content" tabIndex={-1}>
           <Outlet />
         </main>
       </div>
 
-      <div className="toast-region" aria-live="polite" aria-label="Notifications">
+      <div className="toast-region" role="region" aria-live="polite" aria-label="Notifications">
         {notices.map((notice) => (
           <div key={notice.id} className={"toast toast-" + notice.tone} role="status">
             <span>{notice.message}</span><button aria-label="Dismiss notification" onClick={() => dismissNotice(notice.id)}><X aria-hidden="true" /></button>
           </div>
         ))}
+      </div>
+      <div className="sr-only" role="status" aria-live="polite" aria-atomic="true">
+        {activeRun ? `Run ${activeRun.id} is ${activeRun.status}, phase ${activeRun.phase}, iteration ${activeRun.iteration}.` : "No active run."} {pending ? `${pending} approval${pending === 1 ? "" : "s"} pending.` : "No approvals pending."}
       </div>
     </div>
   );

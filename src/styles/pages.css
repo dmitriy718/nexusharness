@@ -3524,8 +3524,8 @@
 }
 
 .tool-toggle input {
-  width: 16px;
-  height: 16px;
+  width: 24px;
+  height: 24px;
   accent-color: var(--violet-bright);
 }
 
@@ -3752,8 +3752,8 @@
 
 .tool-row > input,
 .check-control > input {
-  width: 16px;
-  min-height: 16px;
+  width: 24px;
+  min-height: 24px;
   accent-color: var(--violet);
 }
 
@@ -4253,7 +4253,7 @@
 
 .code-preview > pre i {
   padding-right: 12px;
-  color: #48546d;
+  color: var(--faint);
   text-align: right;
   font-style: normal;
   user-select: none;
@@ -4990,7 +4990,7 @@
   grid-template-columns: 42px minmax(0, 1fr);
 }
 
-.studio-code i { padding-right: 10px; color: #48546d; text-align: right; font-style: normal; }
+.studio-code i { padding-right: 10px; color: var(--faint); text-align: right; font-style: normal; }
 .studio-code code { padding-right: 12px; white-space: pre; }
 
 .studio-timeline { border-right: 0; }
