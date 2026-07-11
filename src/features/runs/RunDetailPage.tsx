@@ -23,6 +23,7 @@ import { EmptyState, InlineAlert, RunStatusBadge, formatDate, formatDuration, ha
 import { displayRunValue, phaseState, runActions, runSummary } from "./runModel";
 import { modeFromLayout, type RunMode } from "./runModeModel";
 import { OrchestrateMode, StudioMode } from "./RunModes";
+import { ExecutionInspector } from "./ExecutionInspector";
 
 const phases: Array<{ id: RunPhase; label: string; icon: React.ComponentType<{ className?: string }> }> = [
   { id: "plan", label: "Plan", icon: Clipboard },
@@ -114,6 +115,8 @@ export function RunDetailPage() {
       </div>
 
       <PhaseRail run={run} />
+
+      {run.execution && <ExecutionInspector summary={run.execution} />}
 
       {mode === "focus" && <div className="run-workspace mode-focus">
         <section className="timeline-panel">

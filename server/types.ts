@@ -136,6 +136,27 @@ export interface ModelChatResponse {
   raw: unknown;
 }
 
+export type ExecutionCellState = "preparing" | "isolated" | "executing" | "verifying" | "ready_to_commit" | "committed" | "rolled_back" | "failed" | "destroyed";
+
+export interface RunExecutionSummary {
+  schemaVersion: 1;
+  cellId: string;
+  provider: "portable-worktree" | "windows-sandbox" | "firecracker" | "remote";
+  securityBoundary: boolean;
+  boundaryDescription: string;
+  state: ExecutionCellState;
+  baseRevision: string;
+  networkDefault: "deny";
+  capabilities: Record<"read" | "write" | "delete" | "execute" | "network" | "secrets", string[]>;
+  budget: { wallTimeMs: number; cpuTimeMs: number; memoryBytes: number; diskBytes: number; processCount: number; outputBytes: number };
+  effects: Array<{ kind: string; target: string; status: string }>;
+  variances: Array<{ kind: "missing" | "unexpected" | "forbidden" | "mismatch"; severity: "warning" | "blocking"; effectTarget: string; detail: string }>;
+  evidence: Array<{ kind: string; name: string; status: "passed" | "failed" | "warning"; detail?: string }>;
+  commit: { available: boolean; reason: string };
+  rollback: { available: boolean; reason: string };
+  updatedAt: string;
+}
+
 export interface TaskRun {
   id: string;
   task: string;
@@ -152,6 +173,7 @@ export interface TaskRun {
   validationOutput?: string;
   result?: string;
   error?: string;
+  execution?: RunExecutionSummary;
   createdAt: string;
   updatedAt: string;
 }
