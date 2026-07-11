@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { createServer } from "node:http";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -11,6 +11,18 @@ if (!index.includes(`name="nexusharness-version" content="${metadata.version}"`)
 
 const port = await availablePort();
 const dataDir = await mkdtemp(path.join(tmpdir(), "nexusharness-smoke-"));
+const seededRun = {
+  id: "run-smoke-cell", task: "Verify bounded execution payloads", status: "passed", phase: "done", iteration: 1, maxIterations: 5, log: [],
+  createdAt: "2026-07-11T08:00:00.000Z", updatedAt: "2026-07-11T08:01:00.000Z",
+  execution: {
+    schemaVersion: 1, cellId: "cell-smoke", provider: "portable-worktree", securityBoundary: false, boundaryDescription: "Transaction isolation only.", state: "verifying", baseRevision: "a".repeat(40), networkDefault: "deny",
+    capabilities: { read: ["**"], write: [], delete: [], execute: [], network: [], secrets: [] },
+    budget: { wallTimeMs: 1000, cpuTimeMs: 1000, memoryBytes: 16777216, diskBytes: 1048576, processCount: 1, outputBytes: 1024 },
+    effects: [{ kind: "file.update", target: "src/main.ts", status: "changed" }], variances: [], evidence: [],
+    commit: { available: false, reason: "Verifying." }, rollback: { available: true, reason: "Discard cell." }, updatedAt: "2026-07-11T08:01:00.000Z"
+  }
+};
+await writeFile(path.join(dataDir, "store.json"), JSON.stringify({ runs: [seededRun] }), "utf8");
 const child = spawn(process.execPath, ["dist-server/server/index.js"], {
   cwd: root,
   env: { ...process.env, NODE_ENV: "production", NEXUSHARNESS_PORT: String(port), NEXUSHARNESS_DATA_DIR: dataDir, NEXUSHARNESS_COMMIT: "smoke-test" },
@@ -25,8 +37,12 @@ try {
   if (healthResponse.headers.get("x-content-type-options") !== "nosniff" || !healthResponse.headers.get("content-security-policy")) throw new Error("Production security headers are missing.");
   const state = await fetch(`http://127.0.0.1:${port}/api/state?compact=1`).then(assertOk).then((response) => response.json());
   if (!state.settings || !Array.isArray(state.runs) || !Array.isArray(state.audit)) throw new Error("Compact state smoke response is malformed.");
+  if (state.runs.length !== 1 || state.runs[0].execution !== undefined) throw new Error("Compact state leaked full execution evidence.");
   const runs = await fetch(`http://127.0.0.1:${port}/api/runs?limit=1`).then(assertOk).then((response) => response.json());
   if (!Array.isArray(runs.items) || typeof runs.total !== "number" || runs.limit !== 1) throw new Error("Bounded run history smoke response is malformed.");
+  if (runs.items[0]?.execution !== undefined) throw new Error("Paged run history leaked full execution evidence.");
+  const detail = await fetch(`http://127.0.0.1:${port}/api/runs/${seededRun.id}`).then(assertOk).then((response) => response.json());
+  if (detail.run?.execution?.cellId !== "cell-smoke" || detail.run.execution.effects.length !== 1) throw new Error("Run detail omitted execution evidence.");
   console.log(`Production smoke passed: v${health.version}, commit ${health.commit}, API port ${port}.`);
 } finally {
   child.kill();

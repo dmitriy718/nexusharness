@@ -11,7 +11,7 @@ import { cancelRun, executeRun, isRunActive, startTask } from "./agentLoop.js";
 import { previewWorkspaceFile, searchWorkspace, workspaceEntries, workspaceTree } from "./localTools.js";
 import type { McpServerConfig } from "./types.js";
 import { buildInfo } from "./version.js";
-import { parseRunHistoryQuery, runHistoryPage } from "./runHistory.js";
+import { parseRunHistoryQuery, runHistoryPage, runListItem } from "./runHistory.js";
 
 const app = express();
 app.use(cors({ origin: ["http://127.0.0.1:5173", "http://localhost:5173"] }));
@@ -39,7 +39,7 @@ app.get("/api/state", asyncRoute(async (req, res) => {
   res.json({
     ...store,
     audit: store.audit.slice(0, 200),
-    runs: store.runs.slice(0, 100),
+    runs: store.runs.slice(0, 100).map(runListItem),
     approvals: store.approvals.filter((item) => item.decision === "pending").concat(store.approvals.filter((item) => item.decision !== "pending").slice(0, 100))
   });
 }));

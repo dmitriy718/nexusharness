@@ -10,6 +10,7 @@ All notable NexusHarness changes are documented here. The format follows Keep a 
 - Added an explicit-mode capability broker with policy evaluation, atomic single-use leases, observer-sourced effect comparison, blocking variance detection, chained receipts, canonical output digests, and redacted audit linkage.
 - Added the portable transaction provider for clean-repository disposable worktrees, bounded effect inventories, lifecycle persistence, interrupted-state recovery, receipt-gated stale-base-safe promotion, and owned-worktree teardown; it is explicitly not a hostile-code sandbox.
 - Added an optional run-detail execution inspector for truthful provider boundaries, cell lifecycle, capability leases, resource budgets, observed effects, variance, verification evidence, and backend-guarded commit/rollback availability.
+- Kept full execution-cell effects, variance, evidence, and capability detail in the dedicated run-detail response while compact polling and paged history return bounded run summaries.
 
 ## [2.0.0-beta.1] - 2026-07-11
 
