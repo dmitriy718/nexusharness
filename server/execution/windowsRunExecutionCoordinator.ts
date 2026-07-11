@@ -137,6 +137,26 @@ export class WindowsRunExecutionCoordinator {
     }
   }
 
+  async recoverAndDiscard(cellId: string) {
+    if (this.prepared || this.destroyed) throw new Error("Interrupted Windows-cell recovery requires a fresh coordinator before preparation.");
+    const recovered = await this.provider.recoverCell(cellId, this.objectiveId);
+    await this.provider.destroy(cellId);
+    return recovered;
+  }
+
+  async recoverAndDiscardOrphans() {
+    if (this.prepared || this.destroyed) throw new Error("Windows orphan recovery requires a fresh coordinator before preparation.");
+    const records = await this.provider.recoverObjective(this.objectiveId);
+    const discarded: Array<(typeof records)[number] & { effects?: Awaited<ReturnType<WindowsSandboxProvider["diff"]>> }> = [];
+    for (const record of records) {
+      if (record.cell.state === "destroyed") continue;
+      const effects = await this.provider.diff(record.cell.id).catch(() => undefined);
+      discarded.push({ ...record, ...(effects ? { effects } : {}) });
+      await this.provider.destroy(record.cell.id);
+    }
+    return discarded;
+  }
+
   async list(relativePath = ".") { return listFiles(await this.cellSettings(), relativePath); }
   async read(relativePath: string, options: { offset?: number; limit?: number } = {}) { return readWorkspaceFile(await this.cellSettings(), relativePath, options); }
 
