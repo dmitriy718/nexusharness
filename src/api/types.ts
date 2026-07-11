@@ -99,8 +99,8 @@ export type TaskRun = {
   phase: RunPhase;
   iteration: number;
   maxIterations: number;
-  plan?: string[];
-  subtaskResults?: Array<{ subtask: string; output: string }>;
+  plan?: unknown[];
+  subtaskResults?: Array<{ subtask: unknown; output: unknown }>;
   executorOutput?: string;
   criticFeedback?: string;
   criticScore?: number;

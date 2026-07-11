@@ -1,25 +1,37 @@
-import React, { useMemo, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
-import { ArrowRight, Clock3, Filter, Play, Search, Sparkles } from "lucide-react";
+import React, { useEffect, useMemo, useState } from "react";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { ArrowRight, Clock3, Filter, Play, Search, Sparkles, X } from "lucide-react";
 import { api, errorMessage } from "../../api/client";
 import type { TaskRun } from "../../api/types";
 import { useHarness } from "../../app/StoreProvider";
 import { EmptyState, Field, PageHeader, RunStatusBadge, formatDate, formatDuration, shortId } from "../../components/ui";
+import { filterRuns } from "./runModel";
 
 export function RunsPage() {
   const { store, refresh, notify } = useHarness();
   const navigate = useNavigate();
-  const [task, setTask] = useState("");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [task, setTask] = useState(() => window.sessionStorage.getItem("nexusharness.runDraft") ?? "");
   const [starting, setStarting] = useState(false);
   const [localError, setLocalError] = useState("");
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("all");
-  if (!store) return null;
 
-  const runs = useMemo(() => store.runs.filter((run) => {
-    const matchesQuery = !query || run.task.toLowerCase().includes(query.toLowerCase()) || run.id.toLowerCase().includes(query.toLowerCase());
-    return matchesQuery && (status === "all" || run.status === status);
-  }), [query, status, store.runs]);
+  useEffect(() => {
+    window.sessionStorage.setItem("nexusharness.runDraft", task);
+  }, [task]);
+
+  useEffect(() => {
+    const duplicateId = searchParams.get("duplicate");
+    if (!duplicateId) return;
+    const source = store?.runs.find((run) => run.id === duplicateId);
+    if (source) setTask(source.task);
+    setSearchParams({}, { replace: true });
+  }, [searchParams, setSearchParams, store?.runs]);
+
+  const runs = useMemo(() => filterRuns(store?.runs ?? [], query, status), [query, status, store?.runs]);
+
+  if (!store) return null;
 
   const start = async () => {
     if (!task.trim() || starting) return;
@@ -28,6 +40,7 @@ export function RunsPage() {
     try {
       const run = await api<TaskRun>("/api/tasks", { method: "POST", body: JSON.stringify({ task }) });
       setTask("");
+      window.sessionStorage.removeItem("nexusharness.runDraft");
       await refresh();
       notify("Run started.");
       navigate("/runs/" + run.id);
@@ -40,9 +53,9 @@ export function RunsPage() {
 
   return (
     <div className="page runs-page">
-      <PageHeader eyebrow="Execution" title="Runs" detail="Plan, execute, critique, and validate local work with every decision visible." />
+      <PageHeader eyebrow="Execution" title="Runs" detail="Plan, execute, validate, and critique local work with every decision visible." />
       <section className="composer-card">
-        <div className="composer-head"><span className="pulse-dot" /><div><strong>Start a new mission</strong><p>Planner → Executors → Critic → Validation</p></div></div>
+        <div className="composer-head"><span className="pulse-dot" /><div><strong>Start a new mission</strong><p>Planner → Executors → Validation → Critic</p></div></div>
         <Field label="Task" htmlFor="new-task" hint="Describe the outcome, constraints, and how success should be verified.">
           <textarea
             id="new-task"
@@ -56,7 +69,13 @@ export function RunsPage() {
           />
         </Field>
         {localError && <p className="field-error" role="alert">{localError}</p>}
-        <div className="composer-footer"><span><kbd>Ctrl</kbd><b>+</b><kbd>Enter</kbd> to run</span><button className="button primary glow" disabled={!task.trim() || starting} onClick={() => void start()}><Play />{starting ? "Starting…" : "Start run"}</button></div>
+        <div className="composer-footer">
+          <span><kbd>Ctrl</kbd><b>+</b><kbd>Enter</kbd> to run · {task.length.toLocaleString()} / 20,000</span>
+          <div className="composer-actions">
+            {task && <button className="button quiet" onClick={() => setTask("")}><X />Clear draft</button>}
+            <button className="button primary glow" disabled={!task.trim() || starting || task.length > 20000} onClick={() => void start()}><Play />{starting ? "Starting…" : "Start run"}</button>
+          </div>
+        </div>
       </section>
 
       <section className="section-block runs-section">
