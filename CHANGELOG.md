@@ -6,7 +6,14 @@ All notable NexusHarness changes are documented here. The format follows Keep a 
 
 ### Added
 
-- Midnight Prism v2 application experience, responsive shell, and feature renovations are in progress.
+- Midnight Prism design tokens, local brand mark, responsive routed shell, and accessible navigation foundation.
+- Six-step onboarding, readiness dashboard, searchable run history, detailed run timeline, contextual approval review, and grouped operator settings.
+- Responsive production-browser checks for route headings, accessible control names, and horizontal overflow at desktop and 390 px widths.
+
+### Changed
+
+- Replaced the single-file v1 dashboard with typed API contracts, app state provider, shared components, feature routes, and layered styles.
+- Renamed the run perspectives to Focus, Studio, and Orchestrate; unfinished modes are explicitly labeled Preview.
 
 ## [2.0.0-alpha.1] - 2026-07-11
 
