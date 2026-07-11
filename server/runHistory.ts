@@ -10,7 +10,8 @@ const querySchema = z.object({
 });
 
 export type RunHistoryQuery = z.infer<typeof querySchema>;
-export type RunHistoryPage = { items: TaskRun[]; total: number; offset: number; limit: number; hasMore: boolean };
+export type RunListItem = Omit<TaskRun, "execution">;
+export type RunHistoryPage = { items: RunListItem[]; total: number; offset: number; limit: number; hasMore: boolean };
 
 export function parseRunHistoryQuery(input: Record<string, unknown>): RunHistoryQuery {
   const first = (value: unknown) => Array.isArray(value) ? value[0] : value;
@@ -28,6 +29,12 @@ export function runHistoryPage(runs: TaskRun[], query: RunHistoryQuery): RunHist
     const matchesText = !needle || run.task.toLowerCase().includes(needle) || run.id.toLowerCase().includes(needle);
     return matchesText && (query.status === "all" || run.status === query.status);
   });
-  const items = matching.slice(query.offset, query.offset + query.limit);
+  const items = matching.slice(query.offset, query.offset + query.limit).map(runListItem);
   return { items, total: matching.length, offset: query.offset, limit: query.limit, hasMore: query.offset + items.length < matching.length };
+}
+
+export function runListItem(run: TaskRun): RunListItem {
+  const item = { ...run };
+  delete item.execution;
+  return item;
 }
