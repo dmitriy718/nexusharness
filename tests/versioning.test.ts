@@ -13,14 +13,14 @@ afterEach(async () => {
 });
 
 describe("release version identity", () => {
-  it("keeps package, lockfile, marketplace, and changelog beta identity aligned", async () => {
+  it("keeps package, lockfile, marketplace, and changelog v2 identity aligned", async () => {
     const [packageJson, lockJson, marketplace, changelog] = await Promise.all([
       json(join(root, "package.json")),
       json(join(root, "package-lock.json")),
       json(join(root, "marketplace.json")),
       readFile(join(root, "CHANGELOG.md"), "utf8")
     ]);
-    expect(packageJson.version).toMatch(/^2\.0\.0-beta\.\d+$/);
+    expect(packageJson.version).toMatch(/^2\.0\.0(?:-(?:alpha|beta|rc)\.\d+)?$/);
     expect(lockJson.version).toBe(packageJson.version);
     expect(lockJson.packages[""].version).toBe(packageJson.version);
     expect(marketplace.version).toBe(packageJson.version);

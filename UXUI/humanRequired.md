@@ -4,7 +4,13 @@ This file records work that requires the project owner and cannot be completed s
 
 ## Current blocking actions
 
-None.
+### HR-007 — Resolve owner-held worktree changes for the v2.0.0 tag
+
+- **Status:** Owner decision required; blocks only the clean release tag.
+- **Owner action:** Decide whether the existing edits in `README.md`, `VERIFICATION.md`, and `HARDENING_REVIEW.md` should be discarded or replaced with current final-release documentation, and authorize removal or retention outside Git of `UXUI/capture.png` and `UXUI/capture2.png`.
+- **Evidence:** The three documents currently describe an earlier 22-test, non-sandbox build and conflict with the verified 249-test Windows Sandbox-capable release. The two captures are historical error screenshots and remain untracked.
+- **Why human input is required:** These files predate and are outside the agent's owned claims. The agent will not silently stage, rewrite, or delete owner-held changes.
+- **Blocks:** A clean Git worktree and creation/push of tag `v2.0.0`.
 
 ## Scheduled owner checkpoints
 
@@ -16,15 +22,14 @@ None.
 - **Why human input is required:** This Windows host cannot verify KVM, jailer privilege dropping, cgroups, namespace isolation, seccomp, or microVM boot behavior.
 - **Blocks:** Promoting the Firecracker launcher foundation to a verified Linux security boundary and complete execution-cell provider.
 
+## Completed actions
+
 ### HR-003 — v2.0.0 release-candidate approval
 
-- **Status:** Pending; not yet ready.
-- **Needed after:** All automated verification, responsive captures, migration notes, and the release checklist are complete.
-- **Owner action:** Approve the final visual review and authorize the v2.0.0 release tag.
-- **Why human input is required:** The plan reserves final product and release acceptance for the owner.
-- **Blocks:** Creating and publishing the final v2.0.0 tag.
-
-## Completed actions
+- **Status:** Approved by the owner on 2026-07-11.
+- **Evidence:** The owner stated that everything still pending approval is approved and instructed the agent to proceed after the complete automated, visual, accessibility, Windows Sandbox, and control-plane evidence had passed.
+- **Decision:** Final visual review and the v2.0.0 release candidate are approved. Release identity finalization is authorized.
+- **Result:** The final version may be prepared. Tag creation remains separately blocked only by HR-007's owner-held dirty worktree; HR-006 remains an environment-evidence gate for Linux, not an approval gate for v2.0.0.
 
 ### HR-005 — Real Windows Sandbox command-provider smoke
 
