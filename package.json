@@ -14,6 +14,8 @@
     "test:a11y": "vitest run tests/accessibility.browser.test.ts",
     "test:performance": "vitest run tests/performance.browser.test.ts",
     "test:smoke": "node scripts/smoke.mjs",
+    "test:workflows": "vitest run tests/workflow.browser.test.ts",
+    "test:package": "node scripts/packageDryRun.mjs",
     "test:visual": "vitest run tests/visual.browser.test.ts",
     "test:visual:update": "vitest run tests/visual.browser.test.ts",
     "lint": "eslint .",
@@ -26,7 +28,7 @@
     "control:verify": "node control/scripts/control.mjs verify",
     "version:check": "node scripts/version.mjs check",
     "version:sync": "node scripts/version.mjs sync",
-    "release:verify": "npm run control:verify && npm run version:check && npm run lint && npm test && npm run build && npm run test:a11y && npm run test:visual && npm run test:performance && npm run test:smoke"
+    "release:verify": "npm run control:verify && npm run version:check && npm run lint && npm test && npm run build && npm run test:a11y && npm run test:workflows && npm run test:visual && npm run test:performance && npm run test:smoke && npm run test:package"
   },
   "keywords": [
     "local-ai",
