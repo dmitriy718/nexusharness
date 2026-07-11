@@ -205,6 +205,23 @@
     grid-template-columns: 190px minmax(0, 1fr);
   }
 
+  .studio-mode,
+  .orchestrate-mode {
+    grid-template-columns: 1fr;
+  }
+
+  .studio-tree,
+  .studio-canvas,
+  .studio-timeline {
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .orchestrate-summary {
+    grid-column: auto;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .workspace-shell {
     min-height: 0;
     grid-template-columns: 1fr;
@@ -497,6 +514,18 @@
 
   .live-state {
     display: none;
+  }
+
+  .orchestrate-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .studio-canvas > header {
+    flex-direction: column;
+  }
+
+  .studio-canvas > header .button {
+    width: 100%;
   }
 
   .assignment-savebar .button {

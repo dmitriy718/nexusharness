@@ -18,11 +18,12 @@ All notable NexusHarness changes are documented here. The format follows Keep a 
 - Searchable memory knowledge base with kind/task/source facets, pin-first sorting, complete source-aware editing, provenance timestamps, distinct retrospectives, explicit save state, and ten-second delete undo.
 - Seven routed settings sections with persistent labels/units/bounds, section defaults, synchronized build facts, approval-off confirmation, sticky Save/Discard state, and navigation/unload protection for unsaved drafts.
 - Categorized API failures, distinct boot/online/reconnecting/stale/offline states, freshness indicators, retry/copy/dismiss recovery, accessible toasts, reference-stable compact polling, and draft preservation across unrelated live updates.
+- Three truthful run workspaces: Focus for narrative inspection, Studio for bounded real-workspace browsing and file context, and Orchestrate for saved subtask, agent, approval, and audit activity.
 
 ### Changed
 
 - Replaced the single-file v1 dashboard with typed API contracts, app state provider, shared components, feature routes, and layered styles.
-- Renamed the run perspectives to Focus, Studio, and Orchestrate; unfinished modes are explicitly labeled Preview.
+- Renamed the run perspectives to Focus, Studio, and Orchestrate, with persistent mode selection and distinct responsive interfaces for each workflow.
 - Legacy planner and subtask objects are normalized for presentation instead of appearing as object-coercion text.
 - The visible phase rail now matches the hardened backend order: objective validation completes before Critic scoring.
 - Rejected approvals now fail their recorded originating waiting run directly instead of relying only on error-message matching.
