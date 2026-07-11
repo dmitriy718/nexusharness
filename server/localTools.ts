@@ -49,7 +49,10 @@ async function resolveInsideRealWorkspace(root: string, target: string): Promise
   return resolvedTarget;
 }
 
-async function requireApproval(settings: Settings, action: string, risk: ApprovalRequest["risk"], payload: unknown, context: ApprovalContext = {}): Promise<void> {
+export type LocalApprovalAuthorizer = (settings: Settings, action: string, risk: ApprovalRequest["risk"], payload: unknown, context?: ApprovalContext) => Promise<void>;
+export type LocalAuditWriter = (event: Parameters<typeof audit>[0]) => Promise<unknown>;
+
+export async function requireApproval(settings: Settings, action: string, risk: ApprovalRequest["risk"], payload: unknown, context: ApprovalContext = {}): Promise<void> {
   if (!settings.approvalMode || risk === "read") return;
   const store = await loadStore();
   const payloadJson = JSON.stringify(payload);
@@ -90,6 +93,27 @@ export function contentSha256(content: string): string {
   return createHash("sha256").update(content).digest("hex");
 }
 
+export interface WorkspaceFileWritePlan {
+  relativePath: string;
+  content: string;
+  previousSha256: string | null;
+  nextSha256: string;
+  previousBytes: number | null;
+  nextBytes: number;
+  diff: string | null;
+}
+
+export async function workspaceFileDigest(settings: Settings, relativePath: string) {
+  const filePath = await resolveInsideRealWorkspace(settings.workspaceRoot, relativePath);
+  try {
+    const content = await readFile(filePath);
+    return { sha256: createHash("sha256").update(content).digest("hex"), bytes: content.byteLength };
+  } catch (error: any) {
+    if (error.code === "ENOENT") return null;
+    throw error;
+  }
+}
+
 function safePatch(relativePath: string, before: string | null, after: string): string | null {
   const beforeText = before ?? "";
   if (Buffer.byteLength(beforeText) + Buffer.byteLength(after) > 250_000) return null;
@@ -120,7 +144,13 @@ export async function readWorkspaceFile(settings: Settings, relativePath: string
   return selected;
 }
 
-export async function writeWorkspaceFile(settings: Settings, relativePath: string, content: string, context: ApprovalContext = {}) {
+export async function prepareWorkspaceFileWrite(
+  settings: Settings,
+  relativePath: string,
+  content: string,
+  context: ApprovalContext = {},
+  authorize: LocalApprovalAuthorizer = requireApproval
+): Promise<WorkspaceFileWritePlan> {
   if (Buffer.byteLength(content) > 5 * 1024 * 1024) throw new Error("File write exceeds the 5 MiB safety limit.");
   const filePath = await resolveInsideRealWorkspace(settings.workspaceRoot, relativePath);
   let previousContent: string | null = null;
@@ -129,25 +159,62 @@ export async function writeWorkspaceFile(settings: Settings, relativePath: strin
   } catch (error: any) {
     if (error.code !== "ENOENT") throw error;
   }
-  await requireApproval(settings, "file.write", "write", {
+  const plan: WorkspaceFileWritePlan = {
     relativePath,
-    bytes: Buffer.byteLength(content),
-    previousBytes: previousContent === null ? null : Buffer.byteLength(previousContent),
-    previousSha256: previousContent === null ? null : contentSha256(previousContent),
-    nextSha256: contentSha256(content),
-    diff: safePatch(relativePath, previousContent, content)
-  }, context);
-  await mkdir(path.dirname(filePath), { recursive: true });
-  await writeFile(filePath, content, "utf8");
-  const details = {
     previousSha256: previousContent === null ? null : contentSha256(previousContent),
     nextSha256: contentSha256(content),
     previousBytes: previousContent === null ? null : Buffer.byteLength(previousContent),
     nextBytes: Buffer.byteLength(content),
+    content,
     diff: safePatch(relativePath, previousContent, content)
   };
-  await audit({ actor: "executor", action: "file.write", risk: "write", status: "ok", message: relativePath, details });
-  return { path: relativePath, ...details };
+  await authorize(settings, "file.write", "write", {
+    relativePath: plan.relativePath,
+    bytes: plan.nextBytes,
+    previousBytes: plan.previousBytes,
+    previousSha256: plan.previousSha256,
+    nextSha256: plan.nextSha256,
+    diff: plan.diff
+  }, context);
+  return plan;
+}
+
+export async function executePreparedWorkspaceFileWrite(
+  settings: Settings,
+  plan: WorkspaceFileWritePlan,
+  recordAudit: LocalAuditWriter = audit
+) {
+  if (contentSha256(plan.content) !== plan.nextSha256 || Buffer.byteLength(plan.content) !== plan.nextBytes) {
+    throw new Error(`Approved file-write content changed before execution: ${plan.relativePath}`);
+  }
+  const filePath = await resolveInsideRealWorkspace(settings.workspaceRoot, plan.relativePath);
+  let currentContent: string | null = null;
+  try {
+    currentContent = await readFile(filePath, "utf8");
+  } catch (error: any) {
+    if (error.code !== "ENOENT") throw error;
+  }
+  const currentSha256 = currentContent === null ? null : contentSha256(currentContent);
+  const currentBytes = currentContent === null ? null : Buffer.byteLength(currentContent);
+  if (currentSha256 !== plan.previousSha256 || currentBytes !== plan.previousBytes) {
+    throw new Error(`Workspace file changed after approval and before execution: ${plan.relativePath}`);
+  }
+  await mkdir(path.dirname(filePath), { recursive: true });
+  await writeFile(filePath, plan.content, "utf8");
+  const details = {
+    previousSha256: plan.previousSha256,
+    nextSha256: plan.nextSha256,
+    previousBytes: plan.previousBytes,
+    nextBytes: plan.nextBytes,
+    diff: plan.diff
+  };
+  await recordAudit({ actor: "executor", action: "file.write", risk: "write", status: "ok", message: plan.relativePath, details });
+  return { path: plan.relativePath, ...details };
+}
+
+export async function writeWorkspaceFile(settings: Settings, relativePath: string, content: string, context: ApprovalContext = {}) {
+  const plan = await prepareWorkspaceFileWrite(settings, relativePath, content, context);
+  return executePreparedWorkspaceFileWrite(settings, plan);
 }
 
 export async function deleteWorkspacePath(settings: Settings, relativePath: string, context: ApprovalContext = {}) {

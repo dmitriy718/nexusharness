@@ -14,6 +14,7 @@ All notable NexusHarness changes are documented here. The format follows Keep a 
 - Added a provider-neutral transaction service that serializes cell operations, owns prepare/execute/verify/commit/rollback/destroy transitions, persists mutation-safe run summaries, requires passing receipt evidence before promotion, discloses bounded-detail truncation, and passes receipt digests into atomic commits.
 - Added a run-scoped transaction adapter and durable execution-summary sink with cell-binding, monotonic-update, unknown-run, and mutation-isolation guards so lifecycle state can reach the owning run without entering compact history payloads.
 - Added retry-safe provider action preflight before transaction state or receipt consumption, allowing approval-required file actions to remain isolated and resumable instead of poisoning their execution cell.
+- Added an enforced portable file-write executor with digest-bound approval plans, time-of-check/time-of-use drift rejection, broker receipts, observed create/update effects, and redacted audit linkage.
 
 ## [2.0.0-beta.1] - 2026-07-11
 
