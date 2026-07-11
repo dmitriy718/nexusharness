@@ -11,6 +11,7 @@ All notable NexusHarness changes are documented here. The format follows Keep a 
 - Added the portable transaction provider for clean-repository disposable worktrees, bounded effect inventories, lifecycle persistence, interrupted-state recovery, receipt-gated stale-base-safe promotion, and owned-worktree teardown; it is explicitly not a hostile-code sandbox.
 - Added an optional run-detail execution inspector for truthful provider boundaries, cell lifecycle, capability leases, resource budgets, observed effects, variance, verification evidence, and backend-guarded commit/rollback availability.
 - Kept full execution-cell effects, variance, evidence, and capability detail in the dedicated run-detail response while compact polling and paged history return bounded run summaries.
+- Added a provider-neutral transaction service that serializes cell operations, owns prepare/execute/verify/commit/rollback/destroy transitions, persists mutation-safe run summaries, requires passing receipt evidence before promotion, discloses bounded-detail truncation, and passes receipt digests into atomic commits.
 
 ## [2.0.0-beta.1] - 2026-07-11
 
