@@ -103,6 +103,12 @@ export interface WorkspaceFileWritePlan {
   diff: string | null;
 }
 
+export interface WorkspaceFileDeletePlan {
+  relativePath: string;
+  previousSha256: string;
+  previousBytes: number;
+}
+
 export async function workspaceFileDigest(settings: Settings, relativePath: string) {
   const filePath = await resolveInsideRealWorkspace(settings.workspaceRoot, relativePath);
   try {
@@ -112,6 +118,53 @@ export async function workspaceFileDigest(settings: Settings, relativePath: stri
     if (error.code === "ENOENT") return null;
     throw error;
   }
+}
+
+export async function inspectWorkspaceFileDelete(settings: Settings, relativePath: string): Promise<WorkspaceFileDeletePlan> {
+  const filePath = await resolveInsideRealWorkspace(settings.workspaceRoot, relativePath);
+  if (filePath === path.resolve(settings.workspaceRoot)) throw new Error("Refusing to delete the configured workspace root.");
+  const details = await lstat(filePath);
+  if (!details.isFile()) throw new Error(`Transactional file deletion supports regular files only: ${relativePath}`);
+  if (details.size > 20 * 1024 * 1024) throw new Error(`Transactional file deletion inspection exceeds the 20 MiB limit: ${relativePath}`);
+  const content = await readFile(filePath);
+  return { relativePath, previousSha256: createHash("sha256").update(content).digest("hex"), previousBytes: content.byteLength };
+}
+
+export async function authorizeWorkspaceFileDelete(
+  settings: Settings,
+  plan: WorkspaceFileDeletePlan,
+  context: ApprovalContext = {},
+  authorize: LocalApprovalAuthorizer = requireApproval
+) {
+  await authorize(settings, "file.delete", "write", {
+    relativePath: plan.relativePath,
+    targetType: "file",
+    recursive: false,
+    previousSha256: plan.previousSha256,
+    previousBytes: plan.previousBytes
+  }, context);
+}
+
+export async function executePreparedWorkspaceFileDelete(
+  settings: Settings,
+  plan: WorkspaceFileDeletePlan,
+  recordAudit: LocalAuditWriter = audit
+) {
+  const current = await inspectWorkspaceFileDelete(settings, plan.relativePath);
+  if (current.previousSha256 !== plan.previousSha256 || current.previousBytes !== plan.previousBytes) {
+    throw new Error(`Workspace file changed after approval and before deletion: ${plan.relativePath}`);
+  }
+  const filePath = await resolveInsideRealWorkspace(settings.workspaceRoot, plan.relativePath);
+  await rm(filePath, { recursive: false, force: false });
+  await recordAudit({
+    actor: "executor",
+    action: "file.delete",
+    risk: "write",
+    status: "ok",
+    message: plan.relativePath,
+    details: { previousSha256: plan.previousSha256, previousBytes: plan.previousBytes, recursive: false }
+  });
+  return { path: plan.relativePath, previousSha256: plan.previousSha256, previousBytes: plan.previousBytes, recursive: false };
 }
 
 function safePatch(relativePath: string, before: string | null, after: string): string | null {
