@@ -201,6 +201,10 @@
     border-bottom: 1px solid var(--line);
   }
 
+  .settings-workspace-v2 {
+    grid-template-columns: 190px minmax(0, 1fr);
+  }
+
   .workspace-shell {
     min-height: 0;
     grid-template-columns: 1fr;
@@ -437,6 +441,44 @@
 
   .memory-provenance {
     grid-template-columns: 1fr;
+  }
+
+  .settings-workspace-v2 {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-nav {
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .settings-nav > a {
+    min-height: 50px;
+  }
+
+  .settings-nav > a > span:first-child,
+  .settings-nav small {
+    display: none;
+  }
+
+  .settings-route > header {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .settings-route > header .button {
+    grid-column: 1 / -1;
+    width: 100%;
+  }
+
+  .settings-route-body {
+    padding: 18px 14px;
+  }
+
+  .advanced-facts > div:not(.inline-alert) {
+    align-items: flex-start;
+    flex-direction: column;
   }
 
   .assignment-savebar .button {

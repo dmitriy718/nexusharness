@@ -57,6 +57,7 @@ export function App() {
         <Route path="/approvals" element={<ApprovalsPage />} />
         <Route path="/audit" element={<AuditPage />} />
         <Route path="/settings" element={<SettingsPage />} />
+        <Route path="/settings/:section" element={<SettingsPage />} />
       </Route>
       <Route path="/" element={<Navigate replace to={store.settings.layout ? "/dashboard" : "/onboarding"} />} />
       <Route path="*" element={<Navigate replace to="/dashboard" />} />
