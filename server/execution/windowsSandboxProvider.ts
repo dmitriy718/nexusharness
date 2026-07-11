@@ -26,6 +26,7 @@ export interface WindowsSandboxLaunchInput {
   hostFolder: string;
   configurationDirectory: string;
   bootstrapScript: string;
+  completionFile: string;
   memoryMb?: number;
   timeoutMs?: number;
   signal?: AbortSignal;
@@ -73,11 +74,14 @@ export class WindowsSandboxLauncher {
     const timeoutMs = boundedInteger(input.timeoutMs ?? 10 * 60_000, 10_000, 60 * 60_000, "timeoutMs");
     const memoryMb = boundedInteger(input.memoryMb ?? 4096, 2048, 32_768, "memoryMb");
     const bootstrapScript = bootstrapName(input.bootstrapScript);
+    const completionFile = safeCellFileName(input.completionFile, "completionFile");
     const hostFolder = await existingDirectory(input.hostFolder, "hostFolder");
     if (path.dirname(hostFolder) === hostFolder) throw new Error("Windows Sandbox cannot map a filesystem root as its cell folder.");
     const bootstrapPath = path.join(hostFolder, bootstrapScript);
     const bootstrapStat = await stat(bootstrapPath).catch(() => undefined);
     if (!bootstrapStat?.isFile()) throw new Error(`Windows Sandbox bootstrap script does not exist: ${bootstrapScript}.`);
+    const completionPath = path.join(hostFolder, completionFile);
+    await rm(completionPath, { force: true });
 
     const configurationDirectory = path.resolve(input.configurationDirectory);
     await mkdir(configurationDirectory, { recursive: true });
@@ -87,7 +91,10 @@ export class WindowsSandboxLauncher {
     const profile = createWindowsSandboxProfile({ hostFolder, bootstrapScript, memoryMb });
     await writeFile(configurationPath, profile, { encoding: "utf8", flag: "wx" });
     try {
+      const startedAt = Date.now();
       await this.runner.run(this.executable, configurationPath, timeoutMs, input.signal);
+      const remainingMs = Math.max(1, timeoutMs - (Date.now() - startedAt));
+      await waitForFile(completionPath, remainingMs, input.signal);
     } finally {
       await rm(configurationPath, { force: true });
     }
@@ -175,6 +182,13 @@ function bootstrapName(value: string) {
   return value;
 }
 
+function safeCellFileName(value: string, label: string) {
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,199}$/.test(value) || path.basename(value) !== value) {
+    throw new Error(`Windows Sandbox ${label} must be one safe filename.`);
+  }
+  return value;
+}
+
 function boundedInteger(value: number, minimum: number, maximum: number, label: string) {
   if (!Number.isSafeInteger(value) || value < minimum || value > maximum) {
     throw new Error(`Windows Sandbox ${label} must be an integer from ${minimum} through ${maximum}.`);
@@ -199,4 +213,19 @@ function xml(value: string) {
   // eslint-disable-next-line no-control-regex
   if (/[ -\x08\x0B\x0C\x0E-\x1F]/.test(value)) throw new Error("Windows Sandbox profile values cannot contain XML control characters.");
   return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&apos;");
+}
+
+async function waitForFile(filePath: string, timeoutMs: number, signal?: AbortSignal) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (signal?.aborted) throw signal.reason ?? new Error("Windows Sandbox launch was aborted.");
+    try {
+      const details = await stat(filePath);
+      if (details.isFile()) return;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  throw new Error(`Windows Sandbox did not create its completion file within ${timeoutMs} ms.`);
 }

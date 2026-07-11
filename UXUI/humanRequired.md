@@ -10,9 +10,9 @@ None.
 
 ### HR-004 — Real-host Windows Sandbox isolation probe
 
-- **Status:** Ready for owner action; Windows Sandbox executable and `Containers-DisposableClientVM` feature were detected as enabled on 2026-07-11.
+- **Status:** Retry required after probe lifecycle repair. The first owner attempt on 2026-07-11 reached Windows Sandbox but failed with `0x80070003` because the host launcher returned before the guest initialized, allowing the temporary profile and mapped folder to be cleaned too early. The probe now waits for the guest-written completion file before cleanup.
 - **Needed after:** Hardened launcher candidate (now available in the current implementation branch and intended for `main` after verification).
-- **Owner action:** From `D:\projects\nexus`, run `npm run test:windows-sandbox`. Windows Sandbox will open an interactive VM window and should close automatically within five minutes. Do not enter credentials or interact with unrelated files while it runs.
+- **Owner action:** After the lifecycle repair is pushed, pull/confirm current `main`, then from `D:\projects\nexus` rerun `npm run test:windows-sandbox`. Windows Sandbox will open an interactive VM window and should close automatically within five minutes. Do not enter credentials or interact with unrelated files while it runs.
 - **Expected result:** The command prints JSON with `seedRead`, `mappedWrite`, `hostWriteback`, `networkBlocked`, `sandboxIdentity`, and `passed` all set to `true`, followed by `Windows Sandbox isolation probe passed.`
 - **Evidence to return:** Paste `HR-004: Pass` plus the final JSON, or `HR-004: Fail` plus the complete terminal error and whether the Sandbox window opened/closed.
 - **Why human input is required:** The real Windows Sandbox boundary launches a visible interactive VM. Automated tests validate profile construction and launcher cleanup but cannot silently certify host virtualization, guest identity, or network egress denial.
