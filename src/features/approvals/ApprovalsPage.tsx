@@ -8,15 +8,13 @@ import {
   ChevronRight,
   Code2,
   FileCode2,
-  Filter,
-  Search,
   ShieldAlert,
   ShieldCheck,
   Terminal,
   X
 } from "lucide-react";
 import { api, errorMessage } from "../../api/client";
-import type { Approval, AuditEvent } from "../../api/types";
+import type { Approval } from "../../api/types";
 import { useHarness } from "../../app/StoreProvider";
 import { EmptyState, InlineAlert, PageHeader, StatusBadge, formatDate, shortId } from "../../components/ui";
 import {
@@ -127,45 +125,6 @@ function PayloadPreview({ approval }: { approval: Approval }) {
         {(payload.previousSha256 || payload.nextSha256) && <dl className="hash-review"><div><dt>Previous SHA-256</dt><dd><code>{String(payload.previousSha256 ?? "new file")}</code></dd></div><div><dt>Proposed SHA-256</dt><dd><code>{String(payload.nextSha256)}</code></dd></div></dl>}
       </> : <pre className="raw-payload">{JSON.stringify(redacted, null, 2)}</pre>}
     </div>
-  );
-}
-
-export function AuditPage() {
-  const { store } = useHarness();
-  const [query, setQuery] = useState("");
-  const [risk, setRisk] = useState("all");
-  if (!store) return null;
-  const events = store.audit.filter((event) => {
-    const haystack = [event.actor, event.action, event.message, event.status].join(" ").toLowerCase();
-    return (!query || haystack.includes(query.toLowerCase())) && (risk === "all" || event.risk === risk);
-  });
-  return (
-    <div className="page audit-page">
-      <PageHeader eyebrow="Local event ledger" title="Audit" detail="Reconstruct agent, tool, approval, and system activity without leaving your machine." />
-      <section className="section-block">
-        <div className="section-heading responsive-heading">
-          <div><p className="eyebrow">Events</p><h2>{events.length} visible</h2></div>
-          <div className="filter-row">
-            <label className="search-control"><Search /><span className="sr-only">Search audit</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search activity" /></label>
-            <label className="select-control"><Filter /><span className="sr-only">Risk</span><select value={risk} onChange={(event) => setRisk(event.target.value)}><option value="all">All risks</option><option value="read">Read</option><option value="write">Write</option><option value="execute">Execute</option><option value="network">Network</option></select></label>
-          </div>
-        </div>
-        <div className="audit-table" role="table" aria-label="Audit events">
-          <div className="audit-head" role="row"><span>Time</span><span>Actor</span><span>Action</span><span>Risk</span><span>Status</span><span>Message</span></div>
-          {events.map((event) => <AuditRow event={event} key={event.id} />)}
-        </div>
-        {!events.length && <EmptyState title="No matching events" detail="Adjust the search or risk filter." />}
-      </section>
-    </div>
-  );
-}
-
-function AuditRow({ event }: { event: AuditEvent }) {
-  return (
-    <details className="audit-row">
-      <summary><time>{formatDate(event.at)}</time><span>{event.actor}</span><strong>{event.action}</strong><span><StatusBadge status={event.risk} /></span><span><StatusBadge status={event.status} /></span><span>{event.message}</span></summary>
-      {event.details !== undefined && <pre>{typeof event.details === "string" ? event.details : JSON.stringify(event.details, null, 2)}</pre>}
-    </details>
   );
 }
 

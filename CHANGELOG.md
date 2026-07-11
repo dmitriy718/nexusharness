@@ -11,6 +11,7 @@ All notable NexusHarness changes are documented here. The format follows Keep a 
 - Responsive production-browser checks for route headings, accessible control names, and horizontal overflow at desktop and 390 px widths.
 - Focus run workflow with resumable drafts, duplicate/prefill, eligibility-aware retry/cancel actions, functional output/activity inspector tabs, and portable summaries.
 - Contextual approval review with originating run/subtask links, shell/cwd context, pre-execution file diffs and hashes, recursive-delete warnings, and redacted raw payloads.
+- Full local audit ledger with actor/risk/status/action filters, chronological sorting, run and target linkage, a formatted event drawer, responsive windowing, and explicitly scoped redacted JSON export.
 
 ### Changed
 
@@ -19,6 +20,7 @@ All notable NexusHarness changes are documented here. The format follows Keep a 
 - Legacy planner and subtask objects are normalized for presentation instead of appearing as object-coercion text.
 - The visible phase rail now matches the hardened backend order: objective validation completes before Critic scoring.
 - Rejected approvals now fail their recorded originating waiting run directly instead of relying only on error-message matching.
+- Approval decisions preserve their run and subtask context in the audit ledger, and the compact state poll no longer limits the dedicated audit view to 200 events.
 
 ## [2.0.0-alpha.1] - 2026-07-11
 

@@ -43,6 +43,12 @@ app.get("/api/state", asyncRoute(async (req, res) => {
   });
 }));
 
+app.get("/api/audit", asyncRoute(async (_req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  const store = await loadStore();
+  res.json(store.audit);
+}));
+
 app.put("/api/settings", asyncRoute(async (req, res) => {
   const parsed = settingsSchema.parse(req.body);
   let workspaceStat;
@@ -260,7 +266,10 @@ app.post("/api/approvals/:id/:decision", asyncRoute(async (req, res) => {
     }
   }
   await saveStore(store);
-  await audit({ actor: "operator", action: `approval.${approval.decision}`, risk: approval.risk, status: approval.decision, message: approval.action, details: approval.payload });
+  const approvalDetails = approval.payload && typeof approval.payload === "object" && !Array.isArray(approval.payload)
+    ? { ...approval.payload as Record<string, unknown>, approvalId: approval.id, runId: approval.runId, subtask: approval.subtask }
+    : { payload: approval.payload, approvalId: approval.id, runId: approval.runId, subtask: approval.subtask };
+  await audit({ actor: "operator", action: `approval.${approval.decision}`, risk: approval.risk, status: approval.decision, message: approval.action, details: approvalDetails });
   res.json(approval);
 }));
 
