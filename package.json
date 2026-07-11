@@ -1,6 +1,6 @@
 {
   "name": "nexusharness",
-  "version": "0.1.0",
+  "version": "2.0.0-alpha.1",
   "private": true,
   "type": "module",
   "description": "Local-first AI coding harness for Ollama, LM Studio, llama.cpp, MCP tools, and auditable agentic workflows.",
@@ -18,7 +18,10 @@
     "control:takeover": "node control/scripts/control.mjs takeover",
     "control:release": "node control/scripts/control.mjs release",
     "control:board": "node control/scripts/control.mjs board",
-    "control:verify": "node control/scripts/control.mjs verify"
+    "control:verify": "node control/scripts/control.mjs verify",
+    "version:check": "node scripts/version.mjs check",
+    "version:sync": "node scripts/version.mjs sync",
+    "release:verify": "npm run control:verify && npm run version:check && npm run lint && npm test && npm run build"
   },
   "keywords": [
     "local-ai",

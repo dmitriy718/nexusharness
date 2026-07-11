@@ -1,11 +1,19 @@
 {
   "name": "NexusHarness",
   "slug": "nexusharness-local-ai-coding-harness",
-  "version": "0.1.0",
+  "version": "2.0.0-alpha.1",
   "category": "Developer Tools",
   "deployment": "local-first",
-  "supportedRuntimes": ["Ollama", "LM Studio", "llama.cpp server", "llama.cpp CLI"],
-  "supportedMcpTransports": ["MCP Streamable HTTP", "MCP stdio"],
+  "supportedRuntimes": [
+    "Ollama",
+    "LM Studio",
+    "llama.cpp server",
+    "llama.cpp CLI"
+  ],
+  "supportedMcpTransports": [
+    "MCP Streamable HTTP",
+    "MCP stdio"
+  ],
   "permissions": [
     "Read, write, and delete files inside the configured workspace root",
     "Execute shell commands inside the configured workspace root",

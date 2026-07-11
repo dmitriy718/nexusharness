@@ -10,6 +10,7 @@ import { discoverMcpServers, listMcpTools } from "./mcpClient.js";
 import { cancelRun, executeRun, isRunActive, startTask } from "./agentLoop.js";
 import { workspaceTree } from "./localTools.js";
 import type { McpServerConfig } from "./types.js";
+import { buildInfo } from "./version.js";
 
 const app = express();
 app.use(cors({ origin: ["http://127.0.0.1:5173", "http://localhost:5173"] }));
@@ -27,7 +28,7 @@ function asyncRoute(handler: express.RequestHandler): express.RequestHandler {
 }
 
 app.get("/api/health", (_req, res) => {
-  res.json({ status: "ok", version: "0.1.0", uptimeSeconds: Math.floor(process.uptime()) });
+  res.json({ status: "ok", ...buildInfo, uptimeSeconds: Math.floor(process.uptime()) });
 });
 
 app.get("/api/state", asyncRoute(async (req, res) => {
