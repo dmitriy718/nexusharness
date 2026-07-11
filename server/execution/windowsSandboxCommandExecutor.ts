@@ -36,12 +36,20 @@ export interface SandboxCommandResult {
   stderr: string;
 }
 
+export interface SandboxCommandDiagnostic {
+  stage: "bootstrap-write" | "sandbox-launch" | "result-read" | "result-parse" | "result-validate" | "guest-bootstrap" | "guest-exit" | "complete";
+  exitCode: number | null;
+  errorType?: string;
+  guestStage?: string;
+}
+
 export function windowsSandboxCommandAssertionReport(input: {
   receipt: Awaited<ReturnType<WindowsSandboxCommandExecutor["execute"]>>;
   result?: SandboxCommandResult;
   primaryUnchanged: boolean;
   effects: ObservedEffect[];
   expectedTarget: string;
+  diagnostic?: SandboxCommandDiagnostic;
 }) {
   const checks = {
     receiptSucceeded: input.receipt.status === "succeeded",
@@ -57,6 +65,7 @@ export function windowsSandboxCommandAssertionReport(input: {
     effects: input.effects.map(({ kind, target, status }) => ({ kind, target, status })),
     variances: input.receipt.variances.map(({ kind, severity, effectTarget }) => ({ kind, severity, effectTarget })),
     evidence: input.receipt.evidence.map(({ kind, name, status }) => ({ kind, name, status })),
+    diagnostic: input.diagnostic ?? null,
     checks,
     executionPassed: Object.values(checks).every(Boolean)
   };
@@ -81,6 +90,7 @@ export class WindowsSandboxCommandExecutor implements WindowsSandboxActionExecut
   private readonly prepared = new Map<string, PreparedCommand>();
   private readonly active = new Map<string, PreparedCommand>();
   private readonly completed = new Map<string, SandboxCommandResult>();
+  private readonly diagnostics = new Map<string, SandboxCommandDiagnostic>();
   private readonly launcher: SandboxCommandLauncher;
   private readonly broker: ContractCapabilityBroker;
 
@@ -102,6 +112,8 @@ export class WindowsSandboxCommandExecutor implements WindowsSandboxActionExecut
     if (!contractId.trim() || this.registered.has(contractId) || this.prepared.has(contractId)) throw new Error(`Invalid or duplicate Sandbox command contract: ${contractId}.`);
     if (!input.command.trim() || input.command.length > 100_000) throw new Error("Sandbox command must contain 1 through 100000 characters.");
     const payloadDigest = executionDigest({ kind: "shell.exec", shell: "powershell.exe", command: input.command });
+    this.completed.delete(contractId);
+    this.diagnostics.delete(contractId);
     this.registered.set(contractId, { command: input.command, settings: structuredClone(input.settings), context: structuredClone(input.context ?? {}), payloadDigest });
     return { payloadDigest };
   }
@@ -115,6 +127,12 @@ export class WindowsSandboxCommandExecutor implements WindowsSandboxActionExecut
     const result = this.completed.get(contractId);
     this.completed.delete(contractId);
     return result ? structuredClone(result) : undefined;
+  }
+
+  takeDiagnostic(contractId: string) {
+    const diagnostic = this.diagnostics.get(contractId);
+    this.diagnostics.delete(contractId);
+    return diagnostic ? structuredClone(diagnostic) : undefined;
   }
 
   async authorize({ workingDirectory, contract, lease }: Parameters<NonNullable<WindowsSandboxActionExecutor["authorize"]>>[0]) {
@@ -169,8 +187,12 @@ export class WindowsSandboxCommandExecutor implements WindowsSandboxActionExecut
     const bootstrapPath = path.join(prepared.workingDirectory, bootstrapScript);
     const resultPath = path.join(prepared.workingDirectory, completionFile);
     const encoded = Buffer.from(prepared.command, "utf16le").toString("base64");
-    await writeFile(bootstrapPath, bootstrap(encoded, completionFile), { encoding: "utf8", flag: "wx" });
+    let diagnostic: SandboxCommandDiagnostic = { stage: "bootstrap-write", exitCode: null };
+    this.diagnostics.set(contractId, diagnostic);
     try {
+      await writeFile(bootstrapPath, bootstrap(encoded, completionFile), { encoding: "utf8", flag: "wx" });
+      diagnostic = { stage: "sandbox-launch", exitCode: null };
+      this.diagnostics.set(contractId, diagnostic);
       await this.launcher.launch({
         hostFolder: prepared.workingDirectory,
         configurationDirectory: this.options.configurationDirectory,
@@ -178,11 +200,43 @@ export class WindowsSandboxCommandExecutor implements WindowsSandboxActionExecut
         completionFile,
         timeoutMs: 10 * 60_000
       });
-      const result = parseWindowsSandboxJson<SandboxCommandResult>(await readFile(resultPath, "utf8"));
-      if (!Number.isInteger(result.exitCode) || result.stdout.length > 10 * 1024 * 1024 || result.stderr.length > 10 * 1024 * 1024) throw new Error("Sandbox command returned an invalid or oversized result.");
-      if (result.exitCode !== 0) throw new Error(`Sandbox command failed with exit code ${result.exitCode}.`);
+      diagnostic = { stage: "result-read", exitCode: null };
+      this.diagnostics.set(contractId, diagnostic);
+      const content = await readFile(resultPath, "utf8");
+      diagnostic = { stage: "result-parse", exitCode: null };
+      this.diagnostics.set(contractId, diagnostic);
+      const payload = parseWindowsSandboxJson<Partial<SandboxCommandResult> & { transportStatus?: unknown; transportStage?: unknown; transportErrorType?: unknown }>(content);
+      if (payload.transportStatus === "failed") {
+        diagnostic = {
+          stage: "guest-bootstrap",
+          exitCode: null,
+          guestStage: safeDiagnosticValue(payload.transportStage),
+          errorType: safeDiagnosticValue(payload.transportErrorType)
+        };
+        this.diagnostics.set(contractId, diagnostic);
+        throw new Error("Sandbox guest bootstrap reported a transport failure.");
+      }
+      diagnostic = { stage: "result-validate", exitCode: Number.isInteger(payload.exitCode) ? payload.exitCode as number : null };
+      this.diagnostics.set(contractId, diagnostic);
+      if (!Number.isInteger(payload.exitCode) || typeof payload.stdout !== "string" || typeof payload.stderr !== "string" || payload.stdout.length > 10 * 1024 * 1024 || payload.stderr.length > 10 * 1024 * 1024) {
+        throw new Error("Sandbox command returned an invalid or oversized result.");
+      }
+      const result = { exitCode: payload.exitCode as number, stdout: payload.stdout, stderr: payload.stderr };
+      if (result.exitCode !== 0) {
+        diagnostic = { stage: "guest-exit", exitCode: result.exitCode };
+        this.diagnostics.set(contractId, diagnostic);
+        throw new Error(`Sandbox command failed with exit code ${result.exitCode}.`);
+      }
       this.completed.set(contractId, structuredClone(result));
+      diagnostic = { stage: "complete", exitCode: result.exitCode };
+      this.diagnostics.set(contractId, diagnostic);
       return result;
+    } catch (error) {
+      if (!diagnostic.errorType) {
+        diagnostic = { ...diagnostic, errorType: safeDiagnosticValue(error instanceof Error ? error.name : typeof error) };
+        this.diagnostics.set(contractId, diagnostic);
+      }
+      throw error;
     } finally {
       await Promise.all([bootstrapPath, resultPath].map((target) => rm(target, { force: true })));
     }
@@ -201,7 +255,11 @@ export class WindowsSandboxCommandExecutor implements WindowsSandboxActionExecut
 }
 
 function bootstrap(encodedCommand: string, completionFile: string) {
-  return `$ErrorActionPreference = 'Continue'\n$stdoutPath = 'C:\\NexusCell\\.nexus-stdout.txt'\n$stderrPath = 'C:\\NexusCell\\.nexus-stderr.txt'\n$p = Start-Process powershell.exe -ArgumentList @('-NoLogo','-NoProfile','-NonInteractive','-EncodedCommand','${encodedCommand}') -Wait -PassThru -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath\n$stdout = Get-Content $stdoutPath -Raw -ErrorAction SilentlyContinue\n$stderr = Get-Content $stderrPath -Raw -ErrorAction SilentlyContinue\nif ($null -eq $stdout) { $stdout = '' }\nif ($null -eq $stderr) { $stderr = '' }\n$result = [ordered]@{ exitCode = $p.ExitCode; stdout = [string]$stdout; stderr = [string]$stderr }\nRemove-Item $stdoutPath,$stderrPath -Force -ErrorAction SilentlyContinue\n[IO.File]::WriteAllText('C:\\NexusCell\\${completionFile}', ($result | ConvertTo-Json -Compress), [Text.UTF8Encoding]::new($false))\n`;
+  return `$ErrorActionPreference = 'Stop'\n$stdoutPath = 'C:\\NexusCell\\.nexus-stdout.txt'\n$stderrPath = 'C:\\NexusCell\\.nexus-stderr.txt'\n$transportStage = 'process-execute'\ntry {\n  & powershell.exe -NoLogo -NoProfile -NonInteractive -EncodedCommand '${encodedCommand}' 1> $stdoutPath 2> $stderrPath\n  $exitCode = $LASTEXITCODE\n  $transportStage = 'output-read'\n  $stdout = Get-Content $stdoutPath -Raw -ErrorAction SilentlyContinue\n  $stderr = Get-Content $stderrPath -Raw -ErrorAction SilentlyContinue\n  if ($null -eq $stdout) { $stdout = '' }\n  if ($null -eq $stderr) { $stderr = '' }\n  $result = [ordered]@{ exitCode = $exitCode; stdout = [string]$stdout; stderr = [string]$stderr; transportStatus = 'completed'; transportStage = 'complete'; transportErrorType = $null }\n} catch {\n  $result = [ordered]@{ exitCode = $null; stdout = ''; stderr = ''; transportStatus = 'failed'; transportStage = $transportStage; transportErrorType = $_.Exception.GetType().FullName }\n} finally {\n  Remove-Item $stdoutPath,$stderrPath -Force -ErrorAction SilentlyContinue\n}\n[IO.File]::WriteAllText('C:\\NexusCell\\${completionFile}', ($result | ConvertTo-Json -Compress), [Text.UTF8Encoding]::new($false))\n`;
+}
+
+function safeDiagnosticValue(value: unknown) {
+  return typeof value === "string" && /^[A-Za-z0-9_.-]{1,200}$/.test(value) ? value : "invalid";
 }
 
 async function workspaceState(root: string) {
