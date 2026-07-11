@@ -1,15 +1,26 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { spawn } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   WINDOWS_SANDBOX_SESSION_QUERY,
+  WindowsSandboxProvider,
   WindowsSandboxLauncher,
   createWindowsSandboxProfile,
   parseWindowsSandboxJson,
   parseWindowsSandboxSessionIds,
+  type WindowsSandboxActionExecutor,
   type WindowsSandboxProcessRunner
 } from "../server/execution/windowsSandboxProvider";
+import {
+  actionReceiptSchema,
+  capabilityLeaseSchema,
+  cellSpecSchema,
+  contractedActionSchema,
+  executionDigest
+} from "../server/execution/contracts";
+import { portableWorkspaceDigest } from "../server/execution/portableWorktreeProvider";
 
 const sandboxes: string[] = [];
 
@@ -160,8 +171,151 @@ describe("Windows Sandbox launcher foundation", () => {
   });
 });
 
+describe("Windows Sandbox execution-cell provider", () => {
+  it("composes verified Sandbox execution with isolated effects and receipt-gated promotion", async () => {
+    const fixture = await repositoryFixture();
+    const provider = fixture.provider();
+    const specification = fixture.spec();
+    const prepared = await provider.prepare(specification);
+    expect(provider.securityBoundary).toBe(true);
+    expect(prepared).toMatchObject({ provider: "windows-sandbox", state: "isolated", specDigest: executionDigest(specification) });
+    await provider.authorize("cell-1", fixture.contract(), fixture.lease());
+    const receipt = await provider.execute("cell-1", fixture.contract(), fixture.lease());
+    expect(receipt.status).toBe("succeeded");
+    expect((await provider.snapshot("cell-1", "Inspect verified execution")).state).toBe("verifying");
+    expect((await provider.diff("cell-1")).effects).toContainEqual(expect.objectContaining({ kind: "file.update", target: "tracked.txt" }));
+    expect(await readFile(join(fixture.root, "tracked.txt"), "utf8")).toBe("base\n");
+
+    await provider.transition("cell-1", "ready_to_commit");
+    const committed = await provider.commit("cell-1", fixture.base, [executionDigest(receipt)]);
+    expect(committed).toMatchObject({ status: "committed", expectedBase: fixture.base });
+    expect(await readFile(join(fixture.root, "tracked.txt"), "utf8")).toBe("sandboxed\n");
+    await provider.destroy("cell-1");
+    await expect(access(join(fixture.data, "worktrees", "cell-1"))).rejects.toThrow();
+  });
+
+  it("recovers interrupted transaction state without losing the Windows provider identity", async () => {
+    const fixture = await repositoryFixture();
+    const provider = fixture.provider();
+    await provider.prepare(fixture.spec());
+    await provider.transition("cell-1", "executing");
+    const recovered = await fixture.provider().recover();
+    expect(recovered).toContainEqual(expect.objectContaining({ id: "cell-1", provider: "windows-sandbox", state: "failed" }));
+  });
+
+  it("rejects non-Windows specs and host-only action executors", async () => {
+    const fixture = await repositoryFixture();
+    await expect(fixture.provider().prepare(cellSpecSchema.parse({ ...fixture.spec(), provider: "portable-worktree" }))).rejects.toThrow("cannot prepare portable-worktree");
+    expect(() => new WindowsSandboxProvider({
+      workspaceRoot: fixture.root,
+      dataRoot: fixture.data,
+      actionExecutor: { async execute() { throw new Error("host execution"); } } as unknown as WindowsSandboxActionExecutor
+    })).toThrow("Windows Sandbox-isolated action executor");
+  });
+});
+
 async function fixture() {
   const directory = await mkdtemp(join(tmpdir(), "nexus-windows-sandbox-"));
   sandboxes.push(directory);
   return directory;
+}
+
+async function repositoryFixture() {
+  const sandbox = await fixture();
+  const root = join(sandbox, "repository");
+  const data = join(sandbox, "cells");
+  await mkdir(root);
+  await git(root, ["init", "-b", "main"]);
+  await git(root, ["config", "user.name", "Sandbox Test"]);
+  await git(root, ["config", "user.email", "sandbox@example.invalid"]);
+  await writeFile(join(root, "tracked.txt"), "base\n", "utf8");
+  await git(root, ["add", "."]);
+  await git(root, ["commit", "-m", "base"]);
+  const base = await git(root, ["rev-parse", "HEAD"]);
+  let clock = 0;
+  const now = () => new Date(`2026-07-11T10:00:${String(clock++).padStart(2, "0")}.000Z`);
+  const actionExecutor: WindowsSandboxActionExecutor = {
+    isolation: "windows-sandbox",
+    async authorize({ workingDirectory }) {
+      expect(workingDirectory).toBe(join(data, "worktrees", "cell-1"));
+    },
+    async execute({ workingDirectory, contract: input }) {
+      await writeFile(join(workingDirectory, "tracked.txt"), "sandboxed\n", "utf8");
+      return actionReceiptSchema.parse({
+        schemaVersion: 1,
+        id: "receipt-1",
+        contractId: input.id,
+        cellId: input.cellId,
+        status: "succeeded",
+        startedAt: "2026-07-11T10:00:01.000Z",
+        completedAt: "2026-07-11T10:00:02.000Z",
+        policyVersion: "windows-policy-v1",
+        contractDigest: `sha256:${"a".repeat(64)}`,
+        leaseDigest: `sha256:${"b".repeat(64)}`,
+        predictedEffectsDigest: `sha256:${"c".repeat(64)}`,
+        observedEffects: [{ kind: "file.update", target: "tracked.txt", status: "changed", observedAt: "2026-07-11T10:00:02.000Z" }],
+        variances: [],
+        evidence: [{ kind: "policy", name: "Windows Sandbox policy", status: "passed", digest: `sha256:${"d".repeat(64)}` }]
+      });
+    }
+  };
+  const provider = () => new WindowsSandboxProvider({ workspaceRoot: root, dataRoot: data, actionExecutor, now, id: () => `windows-record-${clock++}` });
+  const spec = () => cellSpecSchema.parse({
+    schemaVersion: 1,
+    id: "cell-1",
+    objectiveId: "objective-1",
+    provider: "windows-sandbox",
+    baseRevision: base,
+    workspaceRootDigest: portableWorkspaceDigest(root),
+    capabilities: { read: ["tracked.txt"], write: ["tracked.txt"], delete: [], execute: [], network: [], secrets: [] },
+    budget: { wallTimeMs: 60_000, cpuTimeMs: 30_000, memoryBytes: 512 * 1024 * 1024, diskBytes: 1024 * 1024 * 1024, processCount: 20, outputBytes: 1024 * 1024 },
+    networkDefault: "deny",
+    retention: { keepFailedMs: 60_000, keepCommittedMs: 0 },
+    createdAt: "2026-07-11T10:00:00.000Z"
+  });
+  const capabilities = { read: ["tracked.txt"], write: ["tracked.txt"], delete: [], execute: [], network: [], secrets: [] };
+  const contract = () => contractedActionSchema.parse({
+    schemaVersion: 1,
+    id: "action-1",
+    objectiveId: "objective-1",
+    cellId: "cell-1",
+    leaseId: "lease-1",
+    issuedAt: "2026-07-11T10:00:00.000Z",
+    expiresAt: "2026-07-11T11:00:00.000Z",
+    purpose: "Update one file inside Windows Sandbox.",
+    action: { kind: "file.write", risk: "write", payloadDigest: `sha256:${"a".repeat(64)}` },
+    capabilities,
+    requires: [{ kind: "write", value: "tracked.txt" }],
+    preconditions: [],
+    expectedEffects: [{ kind: "file.update", target: "tracked.txt", description: "Update tracked file." }],
+    forbiddenEffects: [],
+    invariants: ["Primary workspace remains unchanged before promotion."],
+    successEvidence: ["Sandbox policy passes."],
+    rollback: { kind: "discard_cell", description: "Discard staged effects." }
+  });
+  const lease = () => capabilityLeaseSchema.parse({
+    schemaVersion: 1,
+    id: "lease-1",
+    objectiveId: "objective-1",
+    cellId: "cell-1",
+    issuedAt: "2026-07-11T10:00:00.000Z",
+    expiresAt: "2026-07-11T11:00:00.000Z",
+    singleUse: true,
+    status: "active",
+    capabilities,
+    policyVersion: "windows-policy-v1"
+  });
+  return { root, data, base, provider, spec, contract, lease };
+}
+
+function git(cwd: string, args: string[]) {
+  return new Promise<string>((resolve, reject) => {
+    const child = spawn("git", args, { cwd, windowsHide: true });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk) => { stdout += chunk; });
+    child.stderr.on("data", (chunk) => { stderr += chunk; });
+    child.on("error", reject);
+    child.on("close", (code) => code === 0 ? resolve(stdout.trim()) : reject(new Error(`git ${args[0]} failed: ${stderr || stdout}`)));
+  });
 }

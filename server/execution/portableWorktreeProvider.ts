@@ -185,6 +185,14 @@ export class PortableWorktreeProvider implements ExecutionCellProvider {
     return this.withCellLock(cellId, async () => this.buildEffectSet(await this.readRecord(cellId)));
   }
 
+  async inspect(cellId: string) {
+    await this.initialize();
+    return this.withCellLock(cellId, async () => {
+      const record = await this.readRecord(cellId);
+      return structuredClone({ spec: record.spec, cell: record.cell });
+    });
+  }
+
   async commit(cellId: string, expectedBase: string, effectReceiptDigests: string[] = []): Promise<CommitReceipt> {
     await this.initialize();
     return this.withCellLock(cellId, async () => {
