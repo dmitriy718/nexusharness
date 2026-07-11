@@ -7,6 +7,7 @@ import {
   Check,
   Circle,
   Clipboard,
+  Copy,
   Code2,
   FlaskConical,
   GitPullRequestArrow,
@@ -19,12 +20,13 @@ import { api, errorMessage } from "../../api/client";
 import type { RunPhase, TaskRun } from "../../api/types";
 import { useHarness } from "../../app/StoreProvider";
 import { EmptyState, InlineAlert, RunStatusBadge, formatDate, formatDuration, shortId } from "../../components/ui";
+import { displayRunValue, phaseState, runActions, runSummary } from "./runModel";
 
 const phases: Array<{ id: RunPhase; label: string; icon: React.ComponentType<{ className?: string }> }> = [
   { id: "plan", label: "Plan", icon: Clipboard },
   { id: "execute", label: "Execute", icon: Code2 },
-  { id: "critic", label: "Critique", icon: BrainCircuit },
   { id: "test", label: "Validate", icon: FlaskConical },
+  { id: "critic", label: "Critique", icon: BrainCircuit },
   { id: "retrospective", label: "Reflect", icon: GitPullRequestArrow },
   { id: "done", label: "Done", icon: Check }
 ];
@@ -35,7 +37,7 @@ export function RunDetailPage() {
   const navigate = useNavigate();
   const [busy, setBusy] = useState("");
   const [actionError, setActionError] = useState("");
-  const [mode, setMode] = useState<"focus" | "studio" | "orchestrate">("focus");
+  const [inspector, setInspector] = useState<"overview" | "outputs" | "activity">("overview");
   const run = store?.runs.find((item) => item.id === runId);
 
   const events = useMemo(() => store?.audit.filter((event) => {
@@ -45,11 +47,16 @@ export function RunDetailPage() {
 
   if (!store) return null;
   if (!run) return <div className="page"><EmptyState title="Run not found" detail="This run may have been removed from local history." action={<Link className="button secondary" to="/runs">Back to runs</Link>} /></div>;
+  const eligibility = runActions(run);
 
   const action = async (kind: "resume" | "cancel") => {
     setBusy(kind);
     setActionError("");
     try {
+      if (kind === "cancel" && !window.confirm("Cancel this running workflow? Completed activity remains in the audit log.")) {
+        setBusy("");
+        return;
+      }
       await api("/api/tasks/" + run.id + "/" + kind, { method: "POST" });
       await refresh();
       notify(kind === "cancel" ? "Run canceled." : "Run resumed.");
@@ -66,29 +73,31 @@ export function RunDetailPage() {
         <button className="icon-button" aria-label="Back to runs" onClick={() => navigate("/runs")}><ArrowLeft /></button>
         <div className="run-title"><div><span>#{shortId(run.id)}</span><RunStatusBadge status={run.status} /></div><h1>{run.task}</h1><p>Started {formatDate(run.createdAt)} · {formatDuration(run.createdAt, run.updatedAt)} · iteration {run.iteration}/{run.maxIterations}</p></div>
         <div className="run-header-actions">
-          {["failed", "canceled", "waiting_approval"].includes(run.status) && <button className="button secondary" disabled={Boolean(busy)} onClick={() => void action("resume")}><RotateCcw />{busy === "resume" ? "Resuming…" : "Resume"}</button>}
-          {run.status === "running" && <button className="button danger-quiet" disabled={Boolean(busy)} onClick={() => void action("cancel")}><Square />{busy === "cancel" ? "Canceling…" : "Cancel"}</button>}
+          <Link className="button secondary" to={"/runs?duplicate=" + run.id}><Copy />Duplicate</Link>
+          {eligibility.canResume && <button className="button secondary" disabled={Boolean(busy)} onClick={() => void action("resume")}><RotateCcw />{busy === "resume" ? "Resuming…" : run.status === "waiting_approval" ? "Resume after decision" : "Retry"}</button>}
+          {eligibility.canCancel && <button className="button danger-quiet" disabled={Boolean(busy)} onClick={() => void action("cancel")}><Square />{busy === "cancel" ? "Canceling…" : "Cancel"}</button>}
           <button className="icon-button" aria-label="More run actions"><MoreHorizontal /></button>
         </div>
       </header>
 
       {actionError && <InlineAlert title="Run action failed">{actionError}</InlineAlert>}
+      {run.status === "waiting_approval" && <InlineAlert tone="warning" title="Operator decision required"><Link className="text-link" to="/approvals">Review the pending approval before resuming this run.</Link></InlineAlert>}
 
       <div className="mode-switcher" aria-label="Workspace mode">
-        <button className={mode === "focus" ? "active" : ""} onClick={() => setMode("focus")}>Focus</button>
-        <button className={mode === "studio" ? "active" : ""} onClick={() => setMode("studio")}>Studio <span>Preview</span></button>
-        <button className={mode === "orchestrate" ? "active" : ""} onClick={() => setMode("orchestrate")}>Orchestrate <span>Preview</span></button>
+        <button className="active">Focus</button>
+        <button disabled title="Studio mode is scheduled for the v2 mode phase.">Studio <span>Preview</span></button>
+        <button disabled title="Orchestrate mode is scheduled for the v2 mode phase.">Orchestrate <span>Preview</span></button>
       </div>
 
       <PhaseRail run={run} />
 
-      <div className={"run-workspace mode-" + mode}>
+      <div className="run-workspace mode-focus">
         <section className="timeline-panel">
           <div className="panel-heading"><div><p className="eyebrow">Live narrative</p><h2>Run timeline</h2></div><span className="live-indicator"><span />{run.status === "running" ? "Live" : "Saved"}</span></div>
           <div className="timeline">
             <TimelineItem icon={<Bot />} actor="Operator" title="Task received" time={formatDate(run.createdAt)}><p>{run.task}</p></TimelineItem>
-            {run.plan && <TimelineItem icon={<Clipboard />} actor="Planner" title={"Plan · " + run.plan.length + " steps"} time="Phase output"><ol>{run.plan.map((item, index) => <li key={index}>{displayValue(item)}</li>)}</ol></TimelineItem>}
-            {run.subtaskResults?.map((item, index) => <TimelineItem icon={<Code2 />} actor={"Executor " + (index + 1)} title={displayValue(item.subtask)} time="Subtask"><pre>{displayValue(item.output)}</pre></TimelineItem>)}
+            {run.plan && <TimelineItem icon={<Clipboard />} actor="Planner" title={"Plan · " + run.plan.length + " steps"} time="Phase output"><ol>{run.plan.map((item, index) => <li key={index}>{displayRunValue(item)}</li>)}</ol></TimelineItem>}
+            {run.subtaskResults?.map((item, index) => <TimelineItem icon={<Code2 />} actor={"Executor " + (index + 1)} title={displayRunValue(item.subtask)} time="Subtask"><pre>{displayRunValue(item.output)}</pre></TimelineItem>)}
             {run.criticFeedback && <TimelineItem icon={<BrainCircuit />} actor="Critic" title={"Review" + (run.criticScore !== undefined ? " · " + run.criticScore + "/10" : "")} time="Assessment"><p>{run.criticFeedback}</p></TimelineItem>}
             {run.validationOutput && <TimelineItem icon={<FlaskConical />} actor="Validator" title="Validation output" time="Checks"><pre>{run.validationOutput}</pre></TimelineItem>}
             {run.result && <TimelineItem icon={<Check />} actor="System" title="Final result" time={formatDate(run.updatedAt)}><p>{run.result}</p></TimelineItem>}
@@ -98,8 +107,12 @@ export function RunDetailPage() {
         </section>
 
         <aside className="run-inspector">
-          <div className="inspector-tabs"><button className="active">Overview</button><button>Files</button><button>Raw log</button></div>
-          <dl className="inspector-stats">
+          <div className="inspector-tabs" role="tablist" aria-label="Run inspector">
+            <button role="tab" aria-selected={inspector === "overview"} className={inspector === "overview" ? "active" : ""} onClick={() => setInspector("overview")}>Overview</button>
+            <button role="tab" aria-selected={inspector === "outputs"} className={inspector === "outputs" ? "active" : ""} onClick={() => setInspector("outputs")}>Outputs</button>
+            <button role="tab" aria-selected={inspector === "activity"} className={inspector === "activity" ? "active" : ""} onClick={() => setInspector("activity")}>Activity</button>
+          </div>
+          {inspector === "overview" && <><dl className="inspector-stats">
             <div><dt>Status</dt><dd><RunStatusBadge status={run.status} /></dd></div>
             <div><dt>Current phase</dt><dd>{run.phase}</dd></div>
             <div><dt>Iteration</dt><dd>{run.iteration} / {run.maxIterations}</dd></div>
@@ -108,7 +121,27 @@ export function RunDetailPage() {
             <div><dt>Subtasks</dt><dd>{run.subtaskResults?.length ?? 0}</dd></div>
           </dl>
           <div className="inspector-section"><p className="eyebrow">Agent assignments</p>{["planner", "executor", "critic"].map((role) => <div className="agent-mini" key={role}><span><Bot /></span><div><strong>{role}</strong><small>{store.settings.agentModels[role] ?? "Unassigned"}</small></div></div>)}</div>
-          <button className="button secondary full-width" onClick={() => void navigator.clipboard?.writeText(run.result || run.error || run.task)}><Clipboard />Copy summary</button>
+          </>}
+          {inspector === "outputs" && <div className="inspector-scroll">
+            <InspectorOutput label="Executor" value={run.executorOutput} />
+            <InspectorOutput label="Critic" value={run.criticFeedback} />
+            <InspectorOutput label="Validation" value={run.validationOutput} />
+            <InspectorOutput label="Result" value={run.result} />
+            <InspectorOutput label="Error" value={run.error} />
+            {!run.executorOutput && !run.criticFeedback && !run.validationOutput && !run.result && !run.error && <p className="inspector-empty">No terminal outputs were saved for this run.</p>}
+          </div>}
+          {inspector === "activity" && <div className="inspector-scroll">
+            {events.map((event) => <details className="inspector-event" key={event.id}><summary><span>{event.actor}</span><strong>{event.action}</strong><small>{formatDate(event.at)}</small></summary>{event.details !== undefined && <pre>{typeof event.details === "string" ? event.details : JSON.stringify(event.details, null, 2)}</pre>}</details>)}
+            {!events.length && <p className="inspector-empty">No audit events could be linked to this legacy run.</p>}
+          </div>}
+          <button className="button secondary full-width" onClick={async () => {
+            try {
+              await navigator.clipboard.writeText(runSummary(run));
+              notify("Run summary copied.");
+            } catch {
+              setActionError("The browser did not allow clipboard access.");
+            }
+          }}><Clipboard />Copy summary</button>
         </aside>
       </div>
     </div>
@@ -116,11 +149,10 @@ export function RunDetailPage() {
 }
 
 function PhaseRail({ run }: { run: TaskRun }) {
-  const current = phases.findIndex((phase) => phase.id === run.phase);
   return (
     <ol className="phase-rail" aria-label="Run phases">
       {phases.map((phase, index) => {
-        const state = index < current ? "complete" : index === current ? run.status === "failed" ? "failed" : run.status === "canceled" ? "canceled" : run.status === "waiting_approval" ? "waiting" : "active" : "pending";
+        const state = phaseState(run, phase.id);
         const Icon = phase.icon;
         return <li className={"phase-" + state} key={phase.id}><span className="phase-node">{state === "complete" ? <Check /> : state === "pending" ? <Circle /> : <Icon />}</span><div><strong>{phase.label}</strong><small>{state}</small></div>{index < phases.length - 1 && <i />}</li>;
       })}
@@ -132,19 +164,7 @@ function TimelineItem({ icon, actor, title, time, tone = "default", children }: 
   return <article className={"timeline-item tone-" + tone}><span className="timeline-icon">{icon}</span><div className="timeline-body"><header><div><small>{actor}</small><h3>{title}</h3></div><time>{time}</time></header><div className="timeline-content">{children}</div></div></article>;
 }
 
-function displayValue(value: unknown): string {
-  if (typeof value === "string") return value;
-  if (value === null || value === undefined) return "";
-  if (typeof value === "object") {
-    const record = value as Record<string, unknown>;
-    for (const key of ["title", "task", "description", "name", "content", "output"]) {
-      if (typeof record[key] === "string" && record[key]) return record[key];
-    }
-    try {
-      return JSON.stringify(value, null, 2);
-    } catch {
-      return "Unrecognized legacy output";
-    }
-  }
-  return String(value);
+function InspectorOutput({ label, value }: { label: string; value?: string }) {
+  if (!value) return null;
+  return <section className="inspector-output"><p className="eyebrow">{label}</p><pre>{value}</pre></section>;
 }

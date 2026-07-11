@@ -9,11 +9,14 @@ All notable NexusHarness changes are documented here. The format follows Keep a 
 - Midnight Prism design tokens, local brand mark, responsive routed shell, and accessible navigation foundation.
 - Six-step onboarding, readiness dashboard, searchable run history, detailed run timeline, contextual approval review, and grouped operator settings.
 - Responsive production-browser checks for route headings, accessible control names, and horizontal overflow at desktop and 390 px widths.
+- Focus run workflow with resumable drafts, duplicate/prefill, eligibility-aware retry/cancel actions, functional output/activity inspector tabs, and portable summaries.
 
 ### Changed
 
 - Replaced the single-file v1 dashboard with typed API contracts, app state provider, shared components, feature routes, and layered styles.
 - Renamed the run perspectives to Focus, Studio, and Orchestrate; unfinished modes are explicitly labeled Preview.
+- Legacy planner and subtask objects are normalized for presentation instead of appearing as object-coercion text.
+- The visible phase rail now matches the hardened backend order: objective validation completes before Critic scoring.
 
 ## [2.0.0-alpha.1] - 2026-07-11
 

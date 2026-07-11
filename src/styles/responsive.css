@@ -551,6 +551,15 @@
     display: none;
   }
 
+  .composer-actions {
+    align-items: stretch;
+    flex-direction: column-reverse;
+  }
+
+  .composer-actions .button {
+    width: 100%;
+  }
+
   .filter-row {
     align-items: stretch;
     flex-direction: column;
