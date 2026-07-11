@@ -1,0 +1,11 @@
+node_modules/
+dist/
+dist-server/
+.nexusharness/
+.nexusharness-dev.*.log
+*.log
+.env
+control/.locks/
+control/claims/active/*.json
+!control/claims/active/.gitkeep
+UXUI/capture.png

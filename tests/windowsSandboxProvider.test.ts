@@ -67,11 +67,12 @@ describe("Windows Sandbox launcher foundation", () => {
         expect(timeoutMs).toBe(20_000);
         configurationPath = receivedConfiguration;
         captured = await readFile(receivedConfiguration, "utf8");
+        await writeFile(join(cell, "complete.json"), "{}", "utf8");
       }
     };
     const launcher = new WindowsSandboxLauncher({ executable, platform: "win32", runner, id: () => "profile-1" });
     expect(launcher.securityBoundary).toBe(false);
-    await launcher.launch({ hostFolder: cell, configurationDirectory: configurations, bootstrapScript: "bootstrap.ps1", timeoutMs: 20_000 });
+    await launcher.launch({ hostFolder: cell, configurationDirectory: configurations, bootstrapScript: "bootstrap.ps1", completionFile: "complete.json", timeoutMs: 20_000 });
     expect(captured).toContain(`<HostFolder>${cell}</HostFolder>`);
     await expect(access(configurationPath)).rejects.toThrow();
   });
@@ -91,7 +92,7 @@ describe("Windows Sandbox launcher foundation", () => {
       id: () => "failure-profile",
       runner: { async run(_executable, receivedConfiguration) { configurationPath = receivedConfiguration; throw new Error("Sandbox failed"); } }
     });
-    await expect(launcher.launch({ hostFolder: cell, configurationDirectory: configurations, bootstrapScript: "bootstrap.ps1" })).rejects.toThrow("Sandbox failed");
+    await expect(launcher.launch({ hostFolder: cell, configurationDirectory: configurations, bootstrapScript: "bootstrap.ps1", completionFile: "complete.json" })).rejects.toThrow("Sandbox failed");
     await expect(access(configurationPath)).rejects.toThrow();
   });
 
@@ -103,7 +104,43 @@ describe("Windows Sandbox launcher foundation", () => {
     await mkdir(cell);
     await writeFile(join(cell, "bootstrap.ps1"), "exit 0", "utf8");
     const launcher = new WindowsSandboxLauncher({ executable, platform: "win32", runner: { async run() {} } });
-    await expect(launcher.launch({ hostFolder: cell, configurationDirectory: join(cell, "config"), bootstrapScript: "bootstrap.ps1" })).rejects.toThrow("outside the mapped cell");
+    await expect(launcher.launch({ hostFolder: cell, configurationDirectory: join(cell, "config"), bootstrapScript: "bootstrap.ps1", completionFile: "complete.json" })).rejects.toThrow("outside the mapped cell");
+  });
+
+  it("keeps the profile alive until the guest completion file appears", async () => {
+    const sandbox = await fixture();
+    const executable = join(sandbox, "WindowsSandbox.exe");
+    const cell = join(sandbox, "cell");
+    const configurations = join(sandbox, "configurations");
+    await writeFile(executable, "fixture", "utf8");
+    await mkdir(cell);
+    await writeFile(join(cell, "bootstrap.ps1"), "exit 0", "utf8");
+    let configurationPath = "";
+    const launcher = new WindowsSandboxLauncher({
+      executable,
+      platform: "win32",
+      id: () => "deferred-completion",
+      runner: {
+        async run(_executable, receivedConfiguration) {
+          configurationPath = receivedConfiguration;
+          setTimeout(() => { void writeFile(join(cell, "complete.json"), "{}", "utf8"); }, 25);
+        }
+      }
+    });
+    await launcher.launch({ hostFolder: cell, configurationDirectory: configurations, bootstrapScript: "bootstrap.ps1", completionFile: "complete.json", timeoutMs: 10_000 });
+    await expect(access(join(cell, "complete.json"))).resolves.toBeUndefined();
+    await expect(access(configurationPath)).rejects.toThrow();
+  });
+
+  it.each(["../complete.json", "nested/complete.json", "bad name.json"])("rejects unsafe completion identity %s", async (completionFile) => {
+    const sandbox = await fixture();
+    const executable = join(sandbox, "WindowsSandbox.exe");
+    const cell = join(sandbox, "cell");
+    await writeFile(executable, "fixture", "utf8");
+    await mkdir(cell);
+    await writeFile(join(cell, "bootstrap.ps1"), "exit 0", "utf8");
+    const launcher = new WindowsSandboxLauncher({ executable, platform: "win32", runner: { async run() {} } });
+    await expect(launcher.launch({ hostFolder: cell, configurationDirectory: join(sandbox, "config"), bootstrapScript: "bootstrap.ps1", completionFile })).rejects.toThrow("completionFile");
   });
 });
 

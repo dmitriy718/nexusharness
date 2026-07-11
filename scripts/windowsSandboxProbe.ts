@@ -22,6 +22,7 @@ try {
     hostFolder: cell,
     configurationDirectory: configurations,
     bootstrapScript: "bootstrap.ps1",
+    completionFile: "result.json",
     memoryMb: 4096,
     timeoutMs: 5 * 60_000
   });
