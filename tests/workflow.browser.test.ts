@@ -1,6 +1,8 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { BrowserContext, Page } from "playwright-core";
+import AxeBuilder from "@axe-core/playwright";
 import { fixture, ProductionHarness } from "./productionHarness";
+import type { RunExecutionSummary } from "../src/api/types";
 
 const enabled = process.env.npm_lifecycle_event === "test:workflows";
 const suite = enabled ? describe : describe.skip;
@@ -12,6 +14,7 @@ suite("consequential production workflows", () => {
   beforeAll(async () => {
     const store = fixture();
     store.runs[0] = { ...store.runs[0], status: "waiting_approval", phase: "execute", error: undefined };
+    store.runs[0].execution = executionSummary();
     store.settings.agentModels = { planner: "runtime-a11y:local-coder", executor: "runtime-a11y:local-coder", critic: "runtime-a11y:local-coder" };
     harness = new ProductionHarness(store);
     await harness.start();
@@ -53,6 +56,32 @@ suite("consequential production workflows", () => {
     expect(await page.getByRole("button", { name: "Test connection" }).isEnabled()).toBe(true);
   }, 15_000);
 
+  it("shows truthful transaction boundaries and keeps disconnected promotion actions guarded", async () => {
+    await open("/runs/run-a11y");
+    await expect.poll(() => page.getByRole("heading", { name: "Execution cell" }).isVisible()).toBe(true);
+    expect(await page.getByText("Transaction isolation only").isVisible()).toBe(true);
+    expect(await page.getByText("Portable Git worktree").isVisible()).toBe(true);
+    expect(await page.getByRole("region", { name: "File effects" }).getByText("src/main.ts").isVisible()).toBe(true);
+    expect(await page.getByText("Protected workflow checks").isVisible()).toBe(true);
+    expect(await page.getByRole("button", { name: "Commit result" }).isDisabled()).toBe(true);
+    expect(await page.getByRole("button", { name: "Commit result" }).getAttribute("title")).toBe("Verification is still running.");
+    const accessibility = await new AxeBuilder({ page }).include(".execution-inspector").withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22a", "wcag22aa"]).analyze();
+    expect(accessibility.violations.map((violation) => violation.id)).toEqual([]);
+  }, 15_000);
+
+  it("reflows the execution inspector at 320 CSS pixels", async () => {
+    const narrowContext = await harness.newContext({ viewport: { width: 320, height: 800 }, reducedMotion: "reduce" });
+    const narrowPage = await narrowContext.newPage();
+    try {
+      await narrowPage.goto(harness.url("/runs/run-a11y"), { waitUntil: "networkidle" });
+      expect(await narrowPage.getByRole("heading", { name: "Execution cell" }).isVisible()).toBe(true);
+      expect(await narrowPage.evaluate(() => document.body.scrollWidth > window.innerWidth)).toBe(false);
+      expect(await narrowPage.getByRole("region", { name: "Capability envelope" }).isVisible()).toBe(true);
+    } finally {
+      await narrowContext.close();
+    }
+  }, 15_000);
+
   it("protects settings drafts with discard and persists only an explicit save", async () => {
     await open("/settings/execution");
     const iterations = page.getByLabel("Max iterations");
@@ -72,4 +101,25 @@ suite("consequential production workflows", () => {
 
 async function open(route: string) {
   await page.goto(harness.url(route), { waitUntil: "networkidle" });
+}
+
+function executionSummary(): RunExecutionSummary {
+  return {
+    schemaVersion: 1,
+    cellId: "cell-a11y",
+    provider: "portable-worktree",
+    securityBoundary: false,
+    boundaryDescription: "Disposable Git worktree transaction isolation; not a hostile-code security sandbox.",
+    state: "verifying",
+    baseRevision: "a".repeat(40),
+    networkDefault: "deny",
+    capabilities: { read: ["src/**"], write: ["src/main.ts"], delete: [], execute: ["npm"], network: [], secrets: [] },
+    budget: { wallTimeMs: 60_000, cpuTimeMs: 30_000, memoryBytes: 512 * 1024 * 1024, diskBytes: 1024 * 1024 * 1024, processCount: 20, outputBytes: 1024 * 1024 },
+    effects: [{ kind: "file.update", target: "src/main.ts", status: "changed" }],
+    variances: [],
+    evidence: [{ kind: "test", name: "Protected workflow checks", status: "passed", detail: "Evidence saved" }],
+    commit: { available: false, reason: "Verification is still running." },
+    rollback: { available: true, reason: "Discard the portable cell." },
+    updatedAt: "2026-07-11T10:00:00.000Z"
+  };
 }
