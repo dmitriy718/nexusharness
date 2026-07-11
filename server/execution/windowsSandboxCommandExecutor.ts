@@ -30,10 +30,36 @@ interface PreparedCommand extends RegisteredCommand {
   workingDirectory: string;
 }
 
-interface SandboxCommandResult {
+export interface SandboxCommandResult {
   exitCode: number;
   stdout: string;
   stderr: string;
+}
+
+export function windowsSandboxCommandAssertionReport(input: {
+  receipt: Awaited<ReturnType<WindowsSandboxCommandExecutor["execute"]>>;
+  result?: SandboxCommandResult;
+  primaryUnchanged: boolean;
+  effects: ObservedEffect[];
+  expectedTarget: string;
+}) {
+  const checks = {
+    receiptSucceeded: input.receipt.status === "succeeded",
+    resultAvailable: Boolean(input.result),
+    exitCodeZero: input.result?.exitCode === 0,
+    primaryUnchanged: input.primaryUnchanged,
+    expectedEffectObserved: input.effects.some((effect) => effect.kind === "file.create" && effect.target === input.expectedTarget)
+  };
+  return {
+    receipt: input.receipt.status,
+    exitCode: input.result?.exitCode ?? null,
+    primaryUnchanged: input.primaryUnchanged,
+    effects: input.effects.map(({ kind, target, status }) => ({ kind, target, status })),
+    variances: input.receipt.variances.map(({ kind, severity, effectTarget }) => ({ kind, severity, effectTarget })),
+    evidence: input.receipt.evidence.map(({ kind, name, status }) => ({ kind, name, status })),
+    checks,
+    executionPassed: Object.values(checks).every(Boolean)
+  };
 }
 
 export interface SandboxCommandLauncher {
