@@ -79,6 +79,15 @@ app.post("/api/runtimes", asyncRoute(async (req, res) => {
   res.status(201).json({ runtime, models });
 }));
 
+app.post("/api/runtimes/test", asyncRoute(async (req, res) => {
+  const parsed = runtimeSchema.parse(req.body);
+  const startedAt = performance.now();
+  const models = await validateRuntimeConnection({ id: "connection-test", ...parsed });
+  const result = { checkedAt: new Date().toISOString(), latencyMs: Math.max(1, Math.round(performance.now() - startedAt)), models };
+  await audit({ actor: "operator", action: "runtime.test", risk: "network", status: "ok", message: parsed.name, details: { kind: parsed.kind, endpoint: parsed.endpoint, modelCount: models.length, latencyMs: result.latencyMs } });
+  res.json(result);
+}));
+
 app.delete("/api/runtimes/:id", asyncRoute(async (req, res) => {
   const id = String(req.params.id);
   const store = await loadStore();

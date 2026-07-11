@@ -1,4 +1,16 @@
 @media (max-width: 1240px) {
+  .runtime-wizard-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .assignment-row-v2 {
+    grid-template-columns: auto minmax(150px, 0.65fr) minmax(190px, 1fr);
+  }
+
+  .assignment-row-v2 .capability-note {
+    grid-column: 2 / -1;
+  }
+
   .audit-controls {
     grid-template-columns: minmax(220px, 2fr) repeat(2, minmax(140px, 1fr));
   }
@@ -272,6 +284,45 @@
 
   .page-header h1 {
     font-size: 30px;
+  }
+
+  .runtime-overview {
+    grid-template-columns: 1fr;
+  }
+
+  .runtime-test-steps small {
+    display: none;
+  }
+
+  .runtime-test-steps li > span:last-child {
+    padding-right: 7px;
+  }
+
+  .runtime-wizard-grid,
+  .assignment-row-v2 {
+    grid-template-columns: 1fr;
+  }
+
+  .assignment-row-v2 .capability-note {
+    grid-column: auto;
+  }
+
+  .agent-mini-avatar {
+    display: none;
+  }
+
+  .assignment-savebar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .assignment-savebar > div,
+  .assignment-savebar .button {
+    width: 100%;
+  }
+
+  .assignment-savebar .button {
+    flex: 1;
   }
 
   .page-actions {
