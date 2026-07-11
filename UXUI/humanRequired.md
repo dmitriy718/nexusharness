@@ -8,6 +8,14 @@ None.
 
 ## Scheduled owner checkpoints
 
+### HR-006 — Linux Firecracker/KVM isolation host
+
+- **Status:** Environment required; non-blocking for Windows provider work.
+- **Owner action:** Provide or designate a Linux host with `/dev/kvm`, matching statically linked Firecracker and `jailer` binaries, a dedicated non-root UID/GID, root-owned non-world-writable input paths, kernel image, and root filesystem image.
+- **Evidence to return:** Host distribution/kernel, cgroup version, Firecracker/jailer version output, KVM accessibility, dedicated UID/GID, and approved paths for chroot, kernel, and rootfs. Do not send credentials or private keys.
+- **Why human input is required:** This Windows host cannot verify KVM, jailer privilege dropping, cgroups, namespace isolation, seccomp, or microVM boot behavior.
+- **Blocks:** Promoting the Firecracker launcher foundation to a verified Linux security boundary and complete execution-cell provider.
+
 ### HR-005 — Real Windows Sandbox command-provider smoke
 
 - **Status:** Ready for owner action after this probe is pushed.
