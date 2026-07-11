@@ -282,12 +282,19 @@ export async function deleteWorkspacePath(settings: Settings, relativePath: stri
   return { path: relativePath };
 }
 
-export async function runShell(settings: Settings, command: string, signal?: AbortSignal, context: ApprovalContext = {}) {
+export async function runShell(
+  settings: Settings,
+  command: string,
+  signal?: AbortSignal,
+  context: ApprovalContext = {},
+  authorize: LocalApprovalAuthorizer = requireApproval,
+  recordAudit: LocalAuditWriter = audit
+) {
   if (!command.trim()) throw new Error("Shell command cannot be empty.");
   if (command.length > 100_000) throw new Error("Shell command exceeds the 100,000 character safety limit.");
   const cwd = await realpath(path.resolve(settings.workspaceRoot));
   const shell = settings.shellPath;
-  await requireApproval(settings, "shell.exec", "execute", { command, cwd, shell }, context);
+  await authorize(settings, "shell.exec", "execute", { command, cwd, shell }, context);
   const shellName = path.basename(shell).toLowerCase();
   const args = shellName.includes("powershell") || shellName.includes("pwsh")
     ? ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", command]
@@ -305,7 +312,7 @@ export async function runShell(settings: Settings, command: string, signal?: Abo
     });
     child.on("error", (error) => resolve({ stdout: "", stderr: error.message, code: 1 }));
   });
-  await audit({
+  await recordAudit({
     actor: "executor",
     action: "shell.exec",
     risk: "execute",
