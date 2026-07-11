@@ -6,30 +6,35 @@ import { callMcpTool } from "./mcpClient.js";
 import { deleteWorkspacePath, listFiles, readWorkspaceFile, runShell, writeWorkspaceFile } from "./localTools.js";
 import { attachRunExecutionSummary, audit, loadStore, saveStore } from "./store.js";
 import { RunExecutionCoordinator } from "./execution/runExecutionCoordinator.js";
+import { WindowsRunExecutionCoordinator, type PredictedSandboxEffect } from "./execution/windowsRunExecutionCoordinator.js";
+import { WindowsSandboxLauncher } from "./execution/windowsSandboxProvider.js";
 import type { CellSpec, EffectSet, ExecutionCell } from "./execution/contracts.js";
+import type { BrokerAuditRecord } from "./execution/broker.js";
 import type { AgentRole, AuditEvent, ChatMessage, RuntimeConfig, StoreShape, TaskRun } from "./types.js";
 
 type RoleBindings = Record<AgentRole, { runtime: RuntimeConfig; model: string }>;
 const activeRuns = new Map<string, AbortController>();
-const activeTransactions = new Map<string, RunExecutionCoordinator>();
+type LiveRunCoordinator = RunExecutionCoordinator | WindowsRunExecutionCoordinator;
+const activeTransactions = new Map<string, LiveRunCoordinator>();
 
-export type AgentExecutionMode = "compatibility" | "transactional";
+export type AgentExecutionMode = "compatibility" | "transactional" | "windows-sandbox";
 export interface AgentExecutionConfig { mode: AgentExecutionMode; dataRoot?: string }
 export interface TransactionalToolCoordinator {
   list(relativePath?: string): Promise<unknown>;
   read(relativePath: string, options?: { offset?: number; limit?: number }): Promise<unknown>;
   write(relativePath: string, content: string, context?: { runId?: string; subtask?: string }): Promise<{ receipt: { status: string; observedEffects: unknown[]; variances: Array<{ effectTarget: string }> } }>;
   delete(relativePath: string, context?: { runId?: string; subtask?: string }): Promise<{ receipt: { status: string; observedEffects: unknown[]; variances: Array<{ effectTarget: string }> } }>;
+  shell?(command: string, expectedEffects: readonly PredictedSandboxEffect[], context?: { runId?: string; subtask?: string }, signal?: AbortSignal): Promise<{ receipt: { status: string; observedEffects: unknown[]; variances: Array<{ effectTarget: string }> }; result?: unknown; diagnostic?: unknown }>;
 }
 
 export function resolveAgentExecutionConfig(environment: NodeJS.ProcessEnv = process.env): AgentExecutionConfig {
   const rawMode = environment.NEXUSHARNESS_EXECUTION_MODE?.trim().toLowerCase() || "compatibility";
-  if (rawMode !== "compatibility" && rawMode !== "transactional") throw new Error("NEXUSHARNESS_EXECUTION_MODE must be compatibility or transactional.");
+  if (rawMode !== "compatibility" && rawMode !== "transactional" && rawMode !== "windows-sandbox") throw new Error("NEXUSHARNESS_EXECUTION_MODE must be compatibility, transactional, or windows-sandbox.");
   if (rawMode === "compatibility") return { mode: "compatibility" };
   const configuredRoot = environment.NEXUSHARNESS_EXECUTION_DIR?.trim();
   if (!configuredRoot) throw new Error("Transactional execution requires NEXUSHARNESS_EXECUTION_DIR outside the workspace repository.");
   if (!path.isAbsolute(configuredRoot)) throw new Error("NEXUSHARNESS_EXECUTION_DIR must be an absolute path.");
-  return { mode: "transactional", dataRoot: path.resolve(configuredRoot) };
+  return { mode: rawMode, dataRoot: path.resolve(configuredRoot) };
 }
 
 function splitModelId(modelId: string): { runtimeId: string; modelName: string } {
@@ -65,13 +70,32 @@ export function localToolSchemas(mode: AgentExecutionMode = "compatibility") {
     { type: "function", function: { name: "file_list", description: "List files inside the configured workspace root.", parameters: { type: "object", properties: { path: { type: "string" } } } } },
     { type: "function", function: { name: "file_read", description: "Read a UTF-8 file inside the configured workspace root. Large files are paged; use offset and limit to continue reading.", parameters: { type: "object", required: ["path"], properties: { path: { type: "string" }, offset: { type: "integer", minimum: 0 }, limit: { type: "integer", minimum: 1, maximum: 100000 } } } } },
     { type: "function", function: { name: "file_write", description: "Write a UTF-8 file inside the configured workspace root. Requires approval when enabled.", parameters: { type: "object", required: ["path", "content"], properties: { path: { type: "string" }, content: { type: "string" } } } } },
-    { type: "function", function: { name: "file_delete", description: mode === "transactional" ? "Delete one regular file inside the disposable run transaction. Requires approval when enabled." : "Delete a file or directory inside the configured workspace root. Requires approval when enabled.", parameters: { type: "object", required: ["path"], properties: { path: { type: "string" } } } } }
+    { type: "function", function: { name: "file_delete", description: mode !== "compatibility" ? "Delete one regular file inside the disposable run transaction. Requires approval when enabled." : "Delete a file or directory inside the configured workspace root. Requires approval when enabled.", parameters: { type: "object", required: ["path"], properties: { path: { type: "string" } } } } }
   ];
-  return mode === "transactional" ? fileTools : [...fileTools, { type: "function", function: { name: "shell_exec", description: "Run a shell command in the configured workspace root. Requires approval when enabled.", parameters: { type: "object", required: ["command"], properties: { command: { type: "string" } } } } }];
+  if (mode === "transactional") return fileTools;
+  if (mode === "windows-sandbox") return [...fileTools, {
+    type: "function",
+    function: {
+      name: "sandbox_exec",
+      description: "Run PowerShell inside Windows Sandbox. Declare every expected file effect; undeclared or missing effects fail proof.",
+      parameters: {
+        type: "object",
+        required: ["command", "expectedEffects"],
+        properties: {
+          command: { type: "string" },
+          expectedEffects: {
+            type: "array", maxItems: 200,
+            items: { type: "object", required: ["kind", "target", "description"], properties: { kind: { type: "string", enum: ["file.create", "file.update", "file.delete"] }, target: { type: "string" }, description: { type: "string" }, required: { type: "boolean" } } }
+          }
+        }
+      }
+    }
+  }];
+  return [...fileTools, { type: "function", function: { name: "shell_exec", description: "Run a shell command in the configured workspace root. Requires approval when enabled.", parameters: { type: "object", required: ["command"], properties: { command: { type: "string" } } } } }];
 }
 
 async function availableTools(mode: AgentExecutionMode) {
-  if (mode === "transactional") return localToolSchemas(mode);
+  if (mode !== "compatibility") return localToolSchemas(mode);
   const store = await loadStore();
   const mcpTools = store.mcpServers
     .filter((server) => server.enabled)
@@ -92,7 +116,12 @@ export async function invokeTool(name: string, args: Record<string, unknown>, si
     if (name === "file_read") return transaction.read(String(args.path), { offset: Number(args.offset ?? 0), limit: Number(args.limit ?? 40_000) });
     if (name === "file_write") return transactionResult(await transaction.write(String(args.path), String(args.content ?? ""), context));
     if (name === "file_delete") return transactionResult(await transaction.delete(String(args.path), context));
-    if (name === "shell_exec" || name.startsWith("mcp_")) throw new Error(`${name} is unavailable in portable transactional mode; configured validation runs through the coordinator and remote effects require explicit compensation semantics.`);
+    if (name === "sandbox_exec") {
+      if (!transaction.shell) throw new Error("sandbox_exec requires the explicitly selected Windows Sandbox execution mode.");
+      const execution = await transaction.shell(String(args.command ?? ""), parsePredictedSandboxEffects(args.expectedEffects), context, signal);
+      return { ...transactionResult(execution), result: execution.result, diagnostic: execution.diagnostic };
+    }
+    if (name === "shell_exec" || name.startsWith("mcp_")) throw new Error(`${name} is unavailable in transactional modes; portable execution has no hostile-process boundary and remote effects require explicit compensation semantics.`);
     throw new Error(`Unknown transactional tool: ${name}`);
   }
   const store = await loadStore();
@@ -112,6 +141,20 @@ export async function invokeTool(name: string, args: Record<string, unknown>, si
     return callMcpTool(server, toolName, args);
   }
   throw new Error(`Unknown tool: ${name}`);
+}
+
+export function parsePredictedSandboxEffects(input: unknown): PredictedSandboxEffect[] {
+  if (!Array.isArray(input) || input.length > 200) throw new Error("sandbox_exec expectedEffects must be an array of at most 200 predicted file effects.");
+  return input.map((item, index) => {
+    if (!item || typeof item !== "object" || Array.isArray(item)) throw new Error(`sandbox_exec expected effect ${index + 1} must be an object.`);
+    const record = item as Record<string, unknown>;
+    if (!["file.create", "file.update", "file.delete"].includes(String(record.kind))) throw new Error(`sandbox_exec expected effect ${index + 1} has an unsupported kind.`);
+    const target = typeof record.target === "string" ? record.target.trim() : "";
+    const description = typeof record.description === "string" ? record.description.trim() : "";
+    if (!target || !description) throw new Error(`sandbox_exec expected effect ${index + 1} requires target and description.`);
+    if (record.required !== undefined && typeof record.required !== "boolean") throw new Error(`sandbox_exec expected effect ${index + 1} required must be boolean.`);
+    return { kind: record.kind as PredictedSandboxEffect["kind"], target, description, ...(record.required === undefined ? {} : { required: record.required }) };
+  });
 }
 
 function transactionResult(execution: Awaited<ReturnType<TransactionalToolCoordinator["write"]>>) {
@@ -143,11 +186,13 @@ function truncateContext(text: string, maxCharacters: number): string {
   return `${text.slice(0, half)}\n\n[Earlier context truncated by NexusHarness]\n\n${text.slice(-half)}`;
 }
 
-async function runExecutorSubtask(runId: string, task: string, plan: string[], subtask: string, criticText: string, bindings: RoleBindings, signal: AbortSignal, mode: AgentExecutionMode, transaction?: RunExecutionCoordinator, previousOutput = ""): Promise<string> {
+async function runExecutorSubtask(runId: string, task: string, plan: string[], subtask: string, criticText: string, bindings: RoleBindings, signal: AbortSignal, mode: AgentExecutionMode, transaction?: LiveRunCoordinator, previousOutput = ""): Promise<string> {
   const store = await loadStore();
   const executionBoundary = mode === "transactional"
-    ? "You are operating in one disposable run transaction. File tools read and mutate only that isolated cell. Arbitrary shell and MCP tools are unavailable; configured validation is run separately by the harness. Do not claim host, process, or network isolation."
-    : "Use tools to inspect and change the configured workspace for your assigned subtask only.";
+    ? "You are operating in one disposable portable transaction. File tools mutate only that cell. Arbitrary shell and MCP are unavailable; configured validation runs separately. Do not claim host, process, or network isolation."
+    : mode === "windows-sandbox"
+      ? "You are operating in one Windows transaction. File tools are deterministically brokered. sandbox_exec runs PowerShell behind the verified Windows Sandbox boundary and requires every expected file effect up front; missing or undeclared effects fail. MCP is unavailable."
+      : "Use tools to inspect and change the configured workspace for your assigned subtask only.";
   const executorMessages: ChatMessage[] = [
     { role: "system", content: `You are an Executor sub-agent. The configured workspace root is ${store.settings.workspaceRoot}. ${executionBoundary} All filesystem tool paths must be relative to that root. Never use absolute paths such as /Users, C:\\Users, /home, or Desktop paths unless the operator configured that directory as the workspace root. Report exact changed files and validation requested. If your runtime does not support native tool calls, request tools by returning only JSON like {"tool_calls":[{"name":"file_read","arguments":{"path":"package.json"}}]}.` },
     { role: "user", content: `Overall task: ${task}\nFull plan:\n${plan.map((item, index) => `${index + 1}. ${item}`).join("\n")}\nAssigned subtask:\n${subtask}\nPrevious critic feedback:\n${truncateContext(criticText, 30_000) || "None"}\nPrevious executor report:\n${truncateContext(previousOutput, 60_000) || "None. This is the first execution pass."}` }
@@ -181,7 +226,7 @@ async function runExecutorSubtask(runId: string, task: string, plan: string[], s
   return executorOutput;
 }
 
-async function runExecutorBatch(runId: string, task: string, plan: string[], criticText: string, maxParallelExecutors: number, bindings: RoleBindings, signal: AbortSignal, mode: AgentExecutionMode, transaction?: RunExecutionCoordinator, previousOutput = "") {
+async function runExecutorBatch(runId: string, task: string, plan: string[], criticText: string, maxParallelExecutors: number, bindings: RoleBindings, signal: AbortSignal, mode: AgentExecutionMode, transaction?: LiveRunCoordinator, previousOutput = "") {
   const results: Array<{ subtask: string; output: string }> = [];
   for (let index = 0; index < plan.length; index += maxParallelExecutors) {
     const batch = plan.slice(index, index + maxParallelExecutors);
@@ -379,7 +424,7 @@ function destroyedRecoverySummary(summary: NonNullable<TaskRun["execution"]>, re
         kind: "custom",
         name: summary.state === "committed" || recoveredState === "committed" ? "Committed restart recovery" : "Restart recovery",
         status: "warning",
-        detail: `The process restarted without durable action authority or receipts. The ${recoveredState} portable cell was discarded and cannot be promoted.`
+        detail: `The process restarted without durable action authority or receipts. The ${recoveredState} ${summary.provider} cell was discarded and cannot be promoted.`
       }
     ],
     commit: { available: false, reason: "Recovered cell was discarded because in-memory proof state was unavailable after restart." },
@@ -394,9 +439,11 @@ function destroyedOrphanSummary(spec: CellSpec, cell: ExecutionCell, effects: Ef
   return {
     schemaVersion: 1,
     cellId: cell.id,
-    provider: "portable-worktree",
-    securityBoundary: false,
-    boundaryDescription: "Recovered disposable Git worktree; not a hostile-process or network security boundary.",
+    provider: spec.provider,
+    securityBoundary: spec.provider === "windows-sandbox",
+    boundaryDescription: spec.provider === "windows-sandbox"
+      ? "Recovered Windows Sandbox command boundary with deterministic worktree file actions."
+      : "Recovered disposable Git worktree; not a hostile-process or network security boundary.",
     state: "destroyed",
     baseRevision: cell.baseRevision,
     networkDefault: spec.networkDefault,
@@ -430,21 +477,21 @@ function resetRunAttempt(run: TaskRun): void {
   delete run.error;
 }
 
-async function prepareRunTransaction(run: TaskRun, store: StoreShape, config: AgentExecutionConfig): Promise<RunExecutionCoordinator> {
+async function prepareRunTransaction(run: TaskRun, store: StoreShape, config: AgentExecutionConfig): Promise<LiveRunCoordinator> {
   const existing = activeTransactions.get(run.id);
   if (existing) return existing;
-  if (config.mode !== "transactional" || !config.dataRoot) throw new Error("Transactional execution is not configured for this run.");
+  if (config.mode === "compatibility" || !config.dataRoot) throw new Error("Transactional execution is not configured for this run.");
   const priorExecution = run.execution ? structuredClone(run.execution) : undefined;
   if (priorExecution?.state === "destroyed" && priorExecution.evidence.some((item) => item.name === "Committed restart recovery")) {
     throw new Error("This run committed before an earlier restart and cannot be automatically re-executed. Duplicate it only after reviewing the promoted effects.");
   }
-  const coordinator = new RunExecutionCoordinator({
+  const workspaceDataRoot = executionDataRoot(config.dataRoot, store.settings.workspaceRoot);
+  const commonOptions = {
     runId: run.id,
     cellIdentity: `${run.id}:${nanoid()}`,
     settings: store.settings,
-    dataRoot: executionDataRoot(config.dataRoot, store.settings.workspaceRoot),
     brokerAudit: {
-      append: async (record) => {
+      append: async (record: BrokerAuditRecord) => {
         await audit({
           actor: "system",
           action: "execution.broker.receipt",
@@ -464,12 +511,25 @@ async function prepareRunTransaction(run: TaskRun, store: StoreShape, config: Ag
       }
     },
     toolAudit: audit,
-    persist: (persistedRunId, summary) => persistExecutionSummary(store, persistedRunId, summary)
-  });
+    persist: (persistedRunId: string, summary: NonNullable<TaskRun["execution"]>) => persistExecutionSummary(store, persistedRunId, summary)
+  };
+  let coordinator: LiveRunCoordinator;
+  if (config.mode === "windows-sandbox") {
+    const launcher = new WindowsSandboxLauncher();
+    const probe = await launcher.probe();
+    if (!probe.available) throw new Error(`Windows Sandbox execution is unavailable: ${probe.reason}`);
+    coordinator = new WindowsRunExecutionCoordinator({
+      ...commonOptions,
+      dataRoot: path.join(workspaceDataRoot, "windows-sandbox"),
+      configurationDirectory: path.join(workspaceDataRoot, "windows-configurations"),
+      launcher
+    });
+  } else {
+    coordinator = new RunExecutionCoordinator({ ...commonOptions, dataRoot: workspaceDataRoot });
+  }
   if (priorExecution && priorExecution.state !== "destroyed") {
-    if (priorExecution.provider !== "portable-worktree") {
-      throw new Error(`Automatic restart recovery is unavailable for ${priorExecution.provider} cells.`);
-    }
+    const selectedProvider = config.mode === "windows-sandbox" ? "windows-sandbox" : "portable-worktree";
+    if (priorExecution.provider !== selectedProvider) throw new Error(`Resume requires ${priorExecution.provider} execution mode; ${selectedProvider} cannot recover that cell.`);
     const recovered = await coordinator.recoverAndDiscard(priorExecution.cellId);
     await persistExecutionSummary(store, run.id, destroyedRecoverySummary(priorExecution, recovered.state));
     await audit({
@@ -516,7 +576,7 @@ async function prepareRunTransaction(run: TaskRun, store: StoreShape, config: Ag
     risk: "execute",
     status: "ok",
     message: run.id,
-    details: { cellId: coordinator.cellId, provider: "portable-worktree", securityBoundary: coordinator.securityBoundary }
+    details: { cellId: coordinator.cellId, provider: config.mode === "windows-sandbox" ? "windows-sandbox" : "portable-worktree", securityBoundary: coordinator.securityBoundary }
   });
   return coordinator;
 }
@@ -604,7 +664,7 @@ export async function cancelRun(runId: string): Promise<TaskRun | undefined> {
   return run;
 }
 
-async function runValidation(store: StoreShape, run: TaskRun, signal: AbortSignal, transaction?: RunExecutionCoordinator): Promise<string> {
+async function runValidation(store: StoreShape, run: TaskRun, signal: AbortSignal, transaction?: LiveRunCoordinator): Promise<string> {
   const commands = [
     { label: "Lint", command: store.settings.lintCommand.trim() },
     { label: "Tests", command: store.settings.testCommand.trim() }
@@ -644,10 +704,10 @@ export async function executeRun(runId: string) {
   let transaction = activeTransactions.get(runId);
   try {
     const executionConfig: AgentExecutionConfig = transaction
-      ? { mode: "transactional" }
+      ? { mode: transaction instanceof WindowsRunExecutionCoordinator ? "windows-sandbox" : "transactional" }
       : resolveAgentExecutionConfig();
-    if (!transaction && hasRecoverablePersistedCell(run) && executionConfig.mode !== "transactional") {
-      throw new Error("This run has a persisted portable transaction. Set NEXUSHARNESS_EXECUTION_MODE=transactional and restore its external execution directory before resuming.");
+    if (!transaction && hasRecoverablePersistedCell(run) && executionConfig.mode === "compatibility") {
+      throw new Error(`This run has a persisted ${run.execution!.provider} transaction. Select its transactional execution mode and restore the external execution directory before resuming.`);
     }
     await audit({
       actor: "system",
@@ -657,9 +717,10 @@ export async function executeRun(runId: string) {
       message: executionConfig.mode,
       details: {
         runId: run.id,
-        transactional: executionConfig.mode === "transactional",
-        securityBoundary: false,
-        modelShellAvailable: executionConfig.mode === "compatibility",
+        transactional: executionConfig.mode !== "compatibility",
+        securityBoundary: executionConfig.mode === "windows-sandbox",
+        modelShellAvailable: executionConfig.mode === "compatibility" || executionConfig.mode === "windows-sandbox",
+        sandboxExecAvailable: executionConfig.mode === "windows-sandbox",
         mcpAvailable: executionConfig.mode === "compatibility"
       }
     });
@@ -676,7 +737,7 @@ export async function executeRun(runId: string) {
       await appendRunLog(run, await audit({ actor: "planner", action: "plan.create", risk: "read", status: "ok", message: "Planner created subtasks.", details: run.plan }));
     }
 
-    if (executionConfig.mode === "transactional" && !transaction) {
+    if (executionConfig.mode !== "compatibility" && !transaction) {
       transaction = await prepareRunTransaction(run, store, executionConfig);
     }
 
@@ -699,7 +760,7 @@ export async function executeRun(runId: string) {
           run.task,
           revisionPlan,
           criticText,
-          executionConfig.mode === "transactional" ? 1 : iteration === 1 ? store.settings.maxParallelExecutors : 1,
+          executionConfig.mode !== "compatibility" ? 1 : iteration === 1 ? store.settings.maxParallelExecutors : 1,
           bindings,
           controller.signal,
           executionConfig.mode,
