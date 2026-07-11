@@ -4,6 +4,10 @@ All notable NexusHarness changes are documented here. The format follows Keep a 
 
 ## [Unreleased]
 
+### Added
+
+- Began the v2.1 transactional execution foundation with versioned objectives, action contracts, capability leases, effect receipts, cell specifications, commit receipts, deterministic digests, and finite lifecycle validation.
+
 ## [2.0.0-beta.1] - 2026-07-11
 
 ### Added
