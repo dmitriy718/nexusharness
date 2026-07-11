@@ -5,6 +5,7 @@ import { join } from "node:path";
 import {
   WindowsSandboxLauncher,
   createWindowsSandboxProfile,
+  parseWindowsSandboxJson,
   type WindowsSandboxProcessRunner
 } from "../server/execution/windowsSandboxProvider";
 
@@ -15,6 +16,11 @@ afterEach(async () => {
 });
 
 describe("Windows Sandbox launcher foundation", () => {
+  it("decodes plain and Windows PowerShell BOM-prefixed JSON results", () => {
+    expect(parseWindowsSandboxJson<{ passed: boolean }>(`${String.fromCodePoint(0xfeff)}{"passed":true}`)).toEqual({ passed: true });
+    expect(parseWindowsSandboxJson<{ passed: boolean }>('{"passed":true}')).toEqual({ passed: true });
+  });
+
   it("emits a hardened profile with one escaped writable cell mapping", () => {
     const profile = createWindowsSandboxProfile({ hostFolder: "C:\\Nexus & Cells\\cell-1", bootstrapScript: "bootstrap.ps1", memoryMb: 6144 });
     expect(profile).toContain("<Networking>Disable</Networking>");

@@ -168,6 +168,10 @@ export function createWindowsSandboxProfile(input: { hostFolder: string; bootstr
   ].join("\n");
 }
 
+export function parseWindowsSandboxJson<T>(content: string): T {
+  return JSON.parse(content.replace(/^\uFEFF/, "")) as T;
+}
+
 async function existingDirectory(value: string, label: string) {
   const resolved = path.resolve(value);
   const details = await stat(resolved).catch(() => undefined);
