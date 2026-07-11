@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { WindowsSandboxCommandExecutor } from "../server/execution/windowsSandboxCommandExecutor.js";
+import { WindowsSandboxCommandExecutor, windowsSandboxCommandAssertionReport } from "../server/execution/windowsSandboxCommandExecutor.js";
 import { WindowsSandboxProvider } from "../server/execution/windowsSandboxProvider.js";
 import { capabilityLeaseSchema, cellSpecSchema, contractedActionSchema, executionDigest } from "../server/execution/contracts.js";
 import { portableWorkspaceDigest } from "../server/execution/portableWorktreeProvider.js";
@@ -63,14 +63,16 @@ try {
   const result = executor.takeResult("command-action");
   const effects = await provider.diff("command-probe");
   const primaryUnchanged = !(await exists(join(root, outputName)));
-  if (receipt.status !== "succeeded" || !result || result.exitCode !== 0 || !primaryUnchanged || !effects.effects.some((effect) => effect.kind === "file.create" && effect.target === outputName)) {
+  const execution = windowsSandboxCommandAssertionReport({ receipt, result, primaryUnchanged, effects: effects.effects, expectedTarget: outputName });
+  console.log(JSON.stringify(execution, null, 2));
+  if (!execution.executionPassed || !result) {
     throw new Error("Real Sandbox command did not satisfy receipt, result, isolation, and effect assertions.");
   }
   await provider.transition("command-probe", "ready_to_commit");
   const commit = await provider.commit("command-probe", base, [executionDigest(receipt)]);
   const promoted = (await readFile(join(root, outputName), "utf8")).trim() === "sandbox-command-passed";
   const passed = commit.status === "committed" && promoted && audit.some((record) => record.status === "succeeded");
-  console.log(JSON.stringify({ receipt: receipt.status, exitCode: result.exitCode, primaryUnchanged, effects: effects.effects.map(({ kind, target }) => ({ kind, target })), commit: commit.status, promoted, passed }, null, 2));
+  console.log(JSON.stringify({ commit: commit.status, promoted, auditSucceeded: audit.some((record) => record.status === "succeeded"), passed }, null, 2));
   if (!passed) throw new Error("Real Sandbox command promotion assertions failed.");
   console.log("Windows Sandbox command provider probe passed.");
 } finally {

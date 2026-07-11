@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawn } from "node:child_process";
-import { WindowsSandboxCommandExecutor, type SandboxCommandLauncher } from "../server/execution/windowsSandboxCommandExecutor";
+import { WindowsSandboxCommandExecutor, windowsSandboxCommandAssertionReport, type SandboxCommandLauncher } from "../server/execution/windowsSandboxCommandExecutor";
 import { capabilityLeaseSchema, contractedActionSchema, executionCellSchema, type CapabilityLease, type ContractedAction } from "../server/execution/contracts";
 import type { BrokerAuditRecord } from "../server/execution/broker";
 import type { Settings } from "../server/types";
@@ -27,6 +27,10 @@ describe("Windows Sandbox command executor", () => {
     expect(fixture.executor.takeResult("action-1")).toBeUndefined();
     expect(fixture.approvals).toEqual([expect.objectContaining({ action: "shell.exec", payload: expect.objectContaining({ shell: "windows-sandbox:powershell.exe" }) })]);
     expect(JSON.stringify(fixture.audit)).not.toContain("safe-secret-command");
+    expect(windowsSandboxCommandAssertionReport({ receipt, result: { exitCode: 0, stdout: "not reported", stderr: "" }, primaryUnchanged: true, effects: receipt.observedEffects, expectedTarget: "generated.txt" })).toMatchObject({
+      executionPassed: true,
+      checks: { receiptSucceeded: true, resultAvailable: true, exitCodeZero: true, primaryUnchanged: true, expectedEffectObserved: true }
+    });
   });
 
   it("rejects command tampering before approval", async () => {
@@ -44,6 +48,11 @@ describe("Windows Sandbox command executor", () => {
     const receipt = await fixture.executor.execute({ cell: cell("executing"), workingDirectory: fixture.root, contract: action, lease: lease() });
     expect(receipt.status).toBe("failed");
     expect(JSON.stringify(receipt)).not.toContain("raw-secret-error");
+    const report = windowsSandboxCommandAssertionReport({ receipt, primaryUnchanged: true, effects: receipt.observedEffects, expectedTarget: "generated.txt" });
+    expect(report).toMatchObject({ executionPassed: false, exitCode: null, checks: { receiptSucceeded: false, resultAvailable: false } });
+    expect(JSON.stringify(report)).not.toContain("raw-secret-error");
+    expect(report).not.toHaveProperty("stdout");
+    expect(report).not.toHaveProperty("stderr");
   });
 });
 
