@@ -5,6 +5,7 @@ import { api, errorMessage } from "../../api/client";
 import type { RunDetailRecord, RunHistoryPage, TaskRun } from "../../api/types";
 import { useHarness } from "../../app/StoreProvider";
 import { EmptyState, Field, PageHeader, RunStatusBadge, formatDate, formatDuration, shortId } from "../../components/ui";
+import { runFailurePresentation } from "./runModel";
 
 const historyPageSize = 100;
 
@@ -144,10 +145,11 @@ export function RunsPage() {
 }
 
 function RunRow({ run }: { run: TaskRun }) {
+  const failure = runFailurePresentation(run);
   return (
     <Link to={"/runs/" + run.id} className="run-row">
       <span className={"run-icon run-" + run.status}><Clock3 /></span>
-      <span className="run-primary"><strong>{run.task}</strong><small>{formatDate(run.createdAt)} · #{shortId(run.id)}</small></span>
+      <span className="run-primary"><strong>{run.task}</strong><small>{formatDate(run.createdAt)} · #{shortId(run.id)}{failure ? ` · ${failure.title}` : ""}</small></span>
       <span className="run-meta"><b>{run.phase}</b><small>iteration {run.iteration}/{run.maxIterations}</small></span>
       <span className="run-duration"><b>{formatDuration(run.createdAt, run.updatedAt)}</b><small>duration</small></span>
       <RunStatusBadge status={run.status} />

@@ -181,6 +181,53 @@
   margin: 2px 0 0;
 }
 
+.failure-guidance {
+  margin-bottom: 18px;
+}
+
+.failure-guidance .inline-alert {
+  padding: 16px 18px;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.failure-guidance .inline-alert > div {
+  min-width: 0;
+  width: 100%;
+}
+
+.failure-guidance ol {
+  margin: 6px 0 0 20px;
+  padding: 0;
+}
+
+.failure-guidance li + li {
+  margin-top: 5px;
+}
+
+.failure-guidance .form-actions {
+  justify-content: flex-start;
+  margin-top: 12px;
+}
+
+.failure-guidance details {
+  margin-top: 12px;
+  border-top: 1px solid currentColor;
+  padding-top: 9px;
+}
+
+.failure-guidance summary {
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.failure-guidance pre {
+  max-height: 180px;
+  margin: 8px 0 0;
+  overflow: auto;
+  white-space: pre-wrap;
+}
+
 .alert-danger {
   border-color: rgba(255, 113, 130, 0.35);
   background: rgba(255, 113, 130, 0.08);

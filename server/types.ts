@@ -167,6 +167,35 @@ export interface RunExecutionSummary {
   updatedAt: string;
 }
 
+export type RunFailureCode =
+  | "runtime_timeout"
+  | "runtime_unavailable"
+  | "runtime_http_error"
+  | "runtime_invalid_response"
+  | "validation_failed"
+  | "approval_failed"
+  | "execution_failed"
+  | "unknown";
+
+export interface RunFailureDetails {
+  code: RunFailureCode;
+  title: string;
+  summary: string;
+  technicalDetail: string;
+  corrections: string[];
+  retryable: boolean;
+  occurredAt: string;
+  phase: TaskRun["phase"];
+  agentRole?: AgentRole;
+  subtask?: string;
+  runtimeId?: string;
+  runtimeName?: string;
+  runtimeKind?: RuntimeKind;
+  endpoint?: string;
+  model?: string;
+  timeoutMs?: number;
+}
+
 export interface TaskRun {
   id: string;
   task: string;
@@ -183,6 +212,7 @@ export interface TaskRun {
   validationOutput?: string;
   result?: string;
   error?: string;
+  failure?: RunFailureDetails;
   execution?: RunExecutionSummary;
   createdAt: string;
   updatedAt: string;

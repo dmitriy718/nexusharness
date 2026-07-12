@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { TaskRun } from "../src/api/types";
-import { displayRunValue, filterRuns, phaseState, runActions, runSummary } from "../src/features/runs/runModel";
+import { displayRunValue, filterRuns, phaseState, runActions, runFailurePresentation, runSummary } from "../src/features/runs/runModel";
 
 function run(overrides: Partial<TaskRun> = {}): TaskRun {
   return {
@@ -69,6 +69,28 @@ describe("run history filtering", () => {
 });
 
 describe("legacy run output", () => {
+  it("turns legacy aborted runtime errors into timeout guidance", () => {
+    const failure = runFailurePresentation(run({
+      status: "failed",
+      phase: "execute",
+      error: "Cannot reach runtime endpoint http://127.0.0.1:11434/api/chat. Last error: This operation was aborted"
+    }), {
+      workspaceRoot: ".", layout: "chat", maxIterations: 5, maxParallelExecutors: 3, criticThreshold: 7, approvalMode: false,
+      shellPath: "powershell.exe", testCommand: "", lintCommand: "", mcpAutoDiscovery: false, mcpPortStart: 3000, mcpPortEnd: 9999,
+      memoryTokenBudget: 2000, agentModels: { executor: "runtime:qwen2.5-coder:14b" }
+    });
+    expect(failure).toMatchObject({ code: "runtime_timeout", title: "Executor model request timed out", endpoint: "http://127.0.0.1:11434/api/chat" });
+    expect(failure?.corrections.join(" ")).toContain("Reduce Max parallel executors from 3 to 1");
+  });
+
+  it("prefers persisted structured failure evidence", () => {
+    const failure = runFailurePresentation(run({ status: "failed", error: "raw", failure: {
+      code: "runtime_timeout", title: "Saved title", summary: "Saved summary", technicalDetail: "detail", corrections: ["fix"], retryable: true,
+      occurredAt: "2026-07-12T00:00:00.000Z", phase: "execute"
+    } }));
+    expect(failure?.title).toBe("Saved title");
+  });
+
   it("extracts useful labels from persisted object values", () => {
     expect(displayRunValue({ title: "Inspect the API", detail: "ignored" })).toBe("Inspect the API");
     expect(displayRunValue({ task: "Run tests" })).toBe("Run tests");

@@ -5,6 +5,23 @@ import type { ChatMessage, ModelChatRequest, ModelChatResponse, ModelInfo, Runti
 const MODEL_CACHE_TTL_MS = 60_000;
 const modelCache = new Map<string, { expiresAt: number; models: ModelInfo[] }>();
 
+export type RuntimeRequestErrorCode = "runtime_timeout" | "runtime_unavailable" | "runtime_http_error" | "runtime_invalid_response";
+
+export class RuntimeRequestError extends Error {
+  constructor(
+    readonly code: RuntimeRequestErrorCode,
+    message: string,
+    readonly url: string,
+    readonly timeoutMs: number,
+    readonly retryable: boolean,
+    readonly status?: number,
+    options?: ErrorOptions
+  ) {
+    super(message, options);
+    this.name = "RuntimeRequestError";
+  }
+}
+
 function runtimeCacheKey(runtime: RuntimeConfig): string {
   return JSON.stringify([runtime.id, runtime.kind, runtime.endpoint, runtime.binaryPath, runtime.modelPath]);
 }
@@ -16,13 +33,28 @@ async function fetchJson(url: string, init: RequestInit, timeoutMs: number): Pro
     const signal = init.signal ? AbortSignal.any([init.signal, controller.signal]) : controller.signal;
     const response = await fetch(url, { ...init, signal });
     const text = await response.text();
-    if (!response.ok) throw new Error(`${response.status} ${response.statusText}: ${text}`);
-    if (Buffer.byteLength(text) > 10 * 1024 * 1024) throw new Error(`Runtime response exceeded the 10 MiB safety limit: ${url}`);
+    if (!response.ok) throw new RuntimeRequestError("runtime_http_error", `Runtime rejected ${url} with HTTP ${response.status} ${response.statusText}.`, url, timeoutMs, response.status >= 500 || response.status === 408 || response.status === 429, response.status);
+    if (Buffer.byteLength(text) > 10 * 1024 * 1024) throw new RuntimeRequestError("runtime_invalid_response", `Runtime response exceeded the 10 MiB safety limit: ${url}`, url, timeoutMs, false);
     try {
       return text ? JSON.parse(text) : {};
     } catch (error: any) {
-      throw new Error(`Runtime returned invalid JSON from ${url}: ${error.message}`);
+      throw new RuntimeRequestError("runtime_invalid_response", `Runtime returned invalid JSON from ${url}.`, url, timeoutMs, false, undefined, { cause: error });
     }
+  } catch (error) {
+    if (error instanceof RuntimeRequestError) throw error;
+    if (init.signal?.aborted && !controller.signal.aborted) throw error;
+    if (controller.signal.aborted) {
+      throw new RuntimeRequestError(
+        "runtime_timeout",
+        `Runtime request timed out after ${formatDuration(timeoutMs)} while waiting for ${url}. The runtime may be busy, queued, or generating too slowly.`,
+        url,
+        timeoutMs,
+        true,
+        undefined,
+        { cause: error }
+      );
+    }
+    throw new RuntimeRequestError("runtime_unavailable", `Could not connect to runtime endpoint ${url}.`, url, timeoutMs, true, undefined, { cause: error });
   } finally {
     clearTimeout(timer);
   }
@@ -40,11 +72,17 @@ async function fetchJsonWithLoopbackFallback(url: string, init: RequestInit, tim
     try {
       return await fetchJson(attempt, init, timeoutMs);
     } catch (error) {
+      if (init.signal?.aborted) throw error;
       lastError = error;
     }
   }
   const detail = lastError instanceof Error ? lastError.message : String(lastError);
-  throw new Error(`Cannot reach runtime endpoint ${url}. Last error: ${detail}`);
+  if (lastError instanceof RuntimeRequestError && lastError.code !== "runtime_unavailable") throw lastError;
+  throw new RuntimeRequestError("runtime_unavailable", `Could not connect to runtime endpoint ${url}. Last error: ${detail}`, url, timeoutMs, true, undefined, { cause: lastError });
+}
+
+function formatDuration(milliseconds: number): string {
+  return milliseconds >= 1000 && milliseconds % 1000 === 0 ? `${milliseconds / 1000} seconds` : `${milliseconds} ms`;
 }
 
 function parseContext(raw: any): number | undefined {

@@ -6,6 +6,7 @@ All notable NexusHarness changes are documented here. The format follows Keep a 
 
 ### Added
 
+- Added structured run-failure evidence and prominent failed-run guidance that states what stopped, the responsible phase/agent/runtime/model/deadline, technical details, and specific corrective actions; legacy timeout records receive the same human-readable presentation.
 - Added root `quickstart.sh` and native Windows `quickstart.ps1` launchers for idempotent new-machine deployment with prerequisite detection, optional user-scoped Node installation, lockfile-based dependency repair, production build and smoke validation, memory migrations, healthy-instance detection, process-safe startup, verbose diagnostics, and Nexus terminal banners.
 - Windows quickstart now identifies a conflicting default-port owner and selects the next free loopback port automatically, while preserving fail-closed behavior for explicitly requested ports and limiting `-Repair` guidance to relevant failures.
 - Added real local Transformers.js, Ollama, and OpenAI-compatible embedding providers with model/dimension descriptors, typed failures, cancellation, bounded retry/backoff, rate-limit handling, health checks, privacy validation, and a bounded provider-session pool.
@@ -17,6 +18,7 @@ All notable NexusHarness changes are documented here. The format follows Keep a 
 
 ### Changed
 
+- Runtime adapters now distinguish request deadlines, endpoint unavailability, HTTP rejection, and malformed responses instead of presenting every aborted request as an unreachable endpoint; failed-run audit records retain the typed category without provider response bodies.
 - Replaced the Planner's pin/title/task keyword selector and four-characters-per-token truncation with the production memory retriever while retaining lexical-only as the default rollback mode.
 - Expanded Memory settings with provider, rollout, ranking, privacy, chunking, caching, retry, diversity, pinned, and failure controls, and exposed per-memory indexing state plus redacted administrative diagnostics.
 

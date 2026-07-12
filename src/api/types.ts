@@ -182,9 +182,29 @@ export type TaskRun = {
   validationOutput?: string;
   result?: string;
   error?: string;
+  failure?: RunFailureDetails;
   execution?: RunExecutionSummary;
   createdAt: string;
   updatedAt: string;
+};
+
+export type RunFailureDetails = {
+  code: "runtime_timeout" | "runtime_unavailable" | "runtime_http_error" | "runtime_invalid_response" | "validation_failed" | "approval_failed" | "execution_failed" | "unknown";
+  title: string;
+  summary: string;
+  technicalDetail: string;
+  corrections: string[];
+  retryable: boolean;
+  occurredAt: string;
+  phase: RunPhase;
+  agentRole?: "planner" | "executor" | "critic";
+  subtask?: string;
+  runtimeId?: string;
+  runtimeName?: string;
+  runtimeKind?: Runtime["kind"];
+  endpoint?: string;
+  model?: string;
+  timeoutMs?: number;
 };
 
 export type Store = {
