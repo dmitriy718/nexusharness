@@ -77,6 +77,12 @@ export type MemoryEntry = {
   content: string;
   pinned: boolean;
   source?: string;
+  namespace?: string;
+  importance?: number;
+  lastAccessedAt?: string;
+  tokenCount?: number;
+  contentHash?: string;
+  indexing?: { status: "pending" | "indexing" | "indexed" | "stale" | "failed" | "disabled"; generationId?: string; embeddedAt?: string; chunkCount?: number; errorCode?: string; updatedAt: string };
   createdAt?: string;
   updatedAt?: string;
 };
@@ -95,6 +101,45 @@ export type SettingsShape = {
   mcpPortStart: number;
   mcpPortEnd: number;
   memoryTokenBudget: number;
+  memoryRetrieval?: {
+    mode: "lexical_only" | "shadow_semantic" | "hybrid" | "semantic_only";
+    topKCandidates: number;
+    finalMemoryLimit: number;
+    similarityMetric: "cosine" | "l2";
+    minimumSemanticScore: number;
+    semanticWeight: number;
+    lexicalWeight: number;
+    recencyWeight: number;
+    taskTypeWeight: number;
+    importanceWeight: number;
+    pinnedPolicy: "always_include" | "ranked";
+    deduplicate: boolean;
+    diversityReranking: boolean;
+    diversityLambda: number;
+  };
+  memoryEmbeddings?: {
+    provider: "transformers-local" | "ollama" | "openai-compatible";
+    model: string;
+    modelRevision: string;
+    endpoint: string;
+    dimensions: number | null;
+    batchSize: number;
+    timeoutMs: number;
+    maxRetries: number;
+    maxInputTokens: number;
+    chunkSizeTokens: number;
+    chunkOverlapTokens: number;
+    cacheEnabled: boolean;
+    cacheMaxEntries: number;
+    cacheTtlMs: number;
+    embedOnWrite: boolean;
+    allowAsyncBackfill: boolean;
+    failurePolicy: "lexical_fallback" | "fail_closed";
+    allowRemoteContent: boolean;
+    allowModelDownload: boolean;
+    apiKeyEnvironmentVariable: string;
+    preprocessingVersion: string;
+  };
   agentModels: Record<string, string | undefined>;
 };
 

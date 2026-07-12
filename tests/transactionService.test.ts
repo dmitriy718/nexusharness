@@ -179,9 +179,9 @@ describe("transaction service", () => {
       expect(await readFile(join(root, "src", "main.ts"), "utf8")).toContain("value = 2");
       expect(await service.destroy("cell-1")).toMatchObject({ state: "destroyed" });
     } finally {
-      await rm(sandbox, { recursive: true, force: true });
+      await rm(sandbox, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
     }
-  });
+  }, 15_000);
 });
 
 function transactionService(provider: FakeProvider, published: RunExecutionSummary[] = [], maxReceiptsPerCell = 1000) {

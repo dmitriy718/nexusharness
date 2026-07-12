@@ -1,6 +1,7 @@
 import express from "express";
 import cors from "cors";
 import { nanoid } from "nanoid";
+import { z } from "zod";
 import path from "node:path";
 import { stat } from "node:fs/promises";
 import { loadStore, saveStore, audit } from "./store.js";
@@ -9,9 +10,29 @@ import { listRuntimeModels, validateRuntimeConnection } from "./runtimeAdapters.
 import { discoverMcpServers, listMcpTools } from "./mcpClient.js";
 import { abandonRunTransaction, cancelRun, executeRun, isRunActive, startTask } from "./agentLoop.js";
 import { previewWorkspaceFile, searchWorkspace, workspaceEntries, workspaceTree } from "./localTools.js";
-import type { McpServerConfig } from "./types.js";
+import type { McpServerConfig, MemoryEntry } from "./types.js";
 import { buildInfo } from "./version.js";
 import { parseRunHistoryQuery, runHistoryPage, runListItem } from "./runHistory.js";
+import { initializeMemorySubsystem, scheduleMemoryBackfill } from "./memory/subsystem.js";
+import { countPromptTokens, memoryContentHash, sameIndexedText, workspaceNamespace } from "./memory/preprocessing.js";
+import { resolveMemoryConfiguration } from "./memory/config.js";
+import { validateProviderConfiguration } from "./memory/providers.js";
+
+const memorySubsystem = await initializeMemorySubsystem();
+const startupMemoryConfiguration = resolveMemoryConfiguration((await loadStore()).settings);
+if (startupMemoryConfiguration.retrieval.mode !== "lexical_only") validateProviderConfiguration(startupMemoryConfiguration.embeddings);
+
+const backfillRequestSchema = z.object({
+  jobId: z.string().regex(/^[A-Za-z0-9._-]{1,100}$/).optional(),
+  dryRun: z.boolean().optional().default(false),
+  batchSize: z.number().int().min(1).max(100).optional(),
+  rateLimitPerSecond: z.number().positive().max(1000).optional(),
+  namespace: z.string().regex(/^workspace:[a-f0-9]{32}$/).optional(),
+  kind: z.enum(["retrospective", "snippet", "context"]).optional(),
+  updatedAfter: z.string().datetime().optional(),
+  staleOnly: z.boolean().optional().default(true),
+  force: z.boolean().optional().default(false)
+});
 
 const app = express();
 app.use(cors({ origin: ["http://127.0.0.1:5173", "http://localhost:5173"] }));
@@ -28,16 +49,27 @@ function asyncRoute(handler: express.RequestHandler): express.RequestHandler {
   return (req, res, next) => Promise.resolve(handler(req, res, next)).catch(next);
 }
 
-app.get("/api/health", (_req, res) => {
-  res.json({ status: "ok", ...buildInfo, uptimeSeconds: Math.floor(process.uptime()) });
-});
+function requestAbortSignal(request: express.Request): AbortSignal {
+  const controller = new AbortController();
+  request.once("aborted", () => controller.abort());
+  return controller.signal;
+}
+
+app.get("/api/health", asyncRoute(async (_req, res) => {
+  const store = await loadStore();
+  const memory = memorySubsystem.diagnostics(store);
+  res.json({ status: "ok", ...buildInfo, uptimeSeconds: Math.floor(process.uptime()), memory: { retrievalMode: memory.retrievalMode, vectorStoreHealthy: memory.vectorStore.ok, activeGeneration: memory.activeGeneration } });
+}));
 
 app.get("/api/state", asyncRoute(async (req, res) => {
   res.setHeader("Cache-Control", "no-store");
   const store = await loadStore();
-  if (req.query.compact !== "1") return res.json(store);
+  const namespace = workspaceNamespace(store.settings.workspaceRoot);
+  const scopedMemory = store.memory.filter((entry) => entry.namespace === namespace);
+  if (req.query.compact !== "1") return res.json({ ...store, memory: scopedMemory });
   res.json({
     ...store,
+    memory: scopedMemory,
     audit: store.audit.slice(0, 200),
     runs: store.runs.slice(0, 100).map(runListItem),
     approvals: store.approvals.filter((item) => item.decision === "pending").concat(store.approvals.filter((item) => item.decision !== "pending").slice(0, 100))
@@ -71,6 +103,8 @@ app.get("/api/runs/:id", asyncRoute(async (req, res) => {
 
 app.put("/api/settings", asyncRoute(async (req, res) => {
   const parsed = settingsSchema.parse(req.body);
+  const memoryConfiguration = resolveMemoryConfiguration(parsed);
+  if (memoryConfiguration.retrieval.mode !== "lexical_only") validateProviderConfiguration(memoryConfiguration.embeddings);
   let workspaceStat;
   try { workspaceStat = await stat(parsed.workspaceRoot); }
   catch { return res.status(400).json({ error: "workspaceRoot must be an existing directory." }); }
@@ -85,6 +119,9 @@ app.put("/api/settings", asyncRoute(async (req, res) => {
   store.settings = parsed;
   await saveStore(store);
   await audit({ actor: "operator", action: "settings.update", risk: "write", status: "ok", message: "Settings updated." });
+  if (memoryConfiguration.retrieval.mode !== "lexical_only" && memoryConfiguration.embeddings.allowAsyncBackfill) {
+    setTimeout(() => void memorySubsystem.backfill(store).catch(() => undefined), 0);
+  }
   res.json(store.settings);
 }));
 
@@ -220,10 +257,19 @@ app.post("/api/memory", asyncRoute(async (req, res) => {
   const parsed = memorySchema.parse(req.body);
   const store = await loadStore();
   const now = new Date().toISOString();
-  const entry = { id: nanoid(), createdAt: now, updatedAt: now, ...parsed };
+  const configuration = resolveMemoryConfiguration(store.settings);
+  const entry: MemoryEntry = {
+    id: nanoid(), createdAt: now, updatedAt: now, ...parsed,
+    namespace: workspaceNamespace(store.settings.workspaceRoot),
+    contentHash: "",
+    tokenCount: countPromptTokens(parsed.content),
+    indexing: { status: "pending", updatedAt: now }
+  };
+  entry.contentHash = memoryContentHash(entry, configuration.embeddings.preprocessingVersion);
   store.memory.unshift(entry);
   await saveStore(store);
   await audit({ actor: "operator", action: "memory.add", risk: "write", status: "ok", message: entry.title, details: { source: entry.source } });
+  await memorySubsystem.indexPersistedMemory(entry, store, requestAbortSignal(req));
   res.status(201).json(entry);
 }));
 
@@ -232,21 +278,70 @@ app.put("/api/memory/:id", asyncRoute(async (req, res) => {
   const parsed = memorySchema.parse(req.body);
   const store = await loadStore();
   const entry = store.memory.find((item) => item.id === id);
-  if (!entry) return res.status(404).json({ error: "Memory entry not found." });
+  if (!entry || entry.namespace !== workspaceNamespace(store.settings.workspaceRoot)) return res.status(404).json({ error: "Memory entry not found." });
+  const configuration = resolveMemoryConfiguration(store.settings);
+  const next = { ...entry, ...parsed, updatedAt: new Date().toISOString() };
+  const indexedTextChanged = !sameIndexedText(entry, next, configuration.embeddings.preprocessingVersion);
+  memorySubsystem.prepareMemoryUpdate(entry, store.settings, indexedTextChanged);
   Object.assign(entry, parsed, { updatedAt: new Date().toISOString() });
+  entry.tokenCount = countPromptTokens(entry.content);
+  entry.contentHash = memoryContentHash(entry, configuration.embeddings.preprocessingVersion);
+  if (indexedTextChanged) entry.indexing = { status: "stale", updatedAt: entry.updatedAt };
   await saveStore(store);
   await audit({ actor: "operator", action: "memory.update", risk: "write", status: "ok", message: entry.title, details: { source: entry.source } });
+  if (indexedTextChanged) await memorySubsystem.indexPersistedMemory(entry, store, requestAbortSignal(req));
+  else memorySubsystem.updateMemoryMetadata(entry);
   res.json(entry);
 }));
 
 app.delete("/api/memory/:id", asyncRoute(async (req, res) => {
   const id = String(req.params.id);
   const store = await loadStore();
-  if (!store.memory.some((entry) => entry.id === id)) return res.status(404).json({ error: "Memory entry not found." });
+  const entry = store.memory.find((candidate) => candidate.id === id);
+  if (!entry || entry.namespace !== workspaceNamespace(store.settings.workspaceRoot)) return res.status(404).json({ error: "Memory entry not found." });
+  memorySubsystem.prepareMemoryDelete(entry, store.settings);
   store.memory = store.memory.filter((entry) => entry.id !== id);
   await saveStore(store);
   await audit({ actor: "operator", action: "memory.delete", risk: "write", status: "ok", message: id });
   res.status(204).end();
+}));
+
+app.get("/api/memory/diagnostics", asyncRoute(async (_req, res) => {
+  res.setHeader("Cache-Control", "no-store");
+  res.json(memorySubsystem.diagnostics(await loadStore()));
+}));
+
+app.post("/api/memory/backfill", asyncRoute(async (req, res) => {
+  const options = backfillRequestSchema.parse(req.body ?? {});
+  const store = await loadStore();
+  const activeNamespace = workspaceNamespace(store.settings.workspaceRoot);
+  if (options.namespace && options.namespace !== activeNamespace) return res.status(403).json({ error: "API backfill is limited to the active workspace namespace." });
+  res.json(await memorySubsystem.backfill(store, options));
+}));
+
+app.post("/api/memory/reembed", asyncRoute(async (req, res) => {
+  const options = backfillRequestSchema.parse({ ...(req.body ?? {}), force: true });
+  const store = await loadStore();
+  const activeNamespace = workspaceNamespace(store.settings.workspaceRoot);
+  if (options.namespace && options.namespace !== activeNamespace) return res.status(403).json({ error: "API re-embedding is limited to the active workspace namespace." });
+  res.json(await memorySubsystem.backfill(store, { ...options, activateOnComplete: false }));
+}));
+
+app.post("/api/memory/generations/:id/activate", asyncRoute(async (req, res) => {
+  const generationId = z.string().regex(/^[a-f0-9]{64}$/).parse(String(req.params.id));
+  const store = await loadStore();
+  if (!memorySubsystem.reembedding) return res.status(503).json({ error: "Vector store is unavailable." });
+  memorySubsystem.reembedding.cutover(store.memory, store.settings, generationId);
+  await audit({ actor: "operator", action: "memory.generation.activate", risk: "write", status: "ok", message: generationId });
+  res.json(memorySubsystem.diagnostics(store));
+}));
+
+app.post("/api/memory/generations/rollback", asyncRoute(async (_req, res) => {
+  const store = await loadStore();
+  if (!memorySubsystem.reembedding) return res.status(503).json({ error: "Vector store is unavailable." });
+  const result = memorySubsystem.reembedding.rollback(store.settings);
+  await audit({ actor: "operator", action: "memory.generation.rollback", risk: "write", status: "ok", message: result.activeGenerationId });
+  res.json(result);
 }));
 
 app.post("/api/tasks", asyncRoute(async (req, res) => {
@@ -353,6 +448,23 @@ app.use((error: any, _req: express.Request, res: express.Response, _next: expres
 
 const port = Number(process.env.NEXUSHARNESS_PORT ?? 8787);
 if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error("NEXUSHARNESS_PORT must be an integer from 1 to 65535.");
-app.listen(port, "127.0.0.1", () => {
+const httpServer = app.listen(port, "127.0.0.1", () => {
   console.log(`NexusHarness API listening on http://127.0.0.1:${port}`);
+  void scheduleMemoryBackfill();
 });
+
+let shuttingDown = false;
+function shutdown(signal: NodeJS.Signals): void {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  const deadline = setTimeout(() => process.exit(1), 5_000);
+  deadline.unref();
+  httpServer.close(() => {
+    clearTimeout(deadline);
+    memorySubsystem.vectorStore?.close();
+    console.log(`NexusHarness API stopped after ${signal}.`);
+    process.exit(0);
+  });
+}
+process.once("SIGINT", () => shutdown("SIGINT"));
+process.once("SIGTERM", () => shutdown("SIGTERM"));

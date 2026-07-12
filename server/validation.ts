@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { memoryEmbeddingSettingsSchema, memoryRetrievalSettingsSchema } from "./memory/config.js";
 
 export const runtimeSchema = z.object({
   name: z.string().trim().min(1).max(200),
@@ -30,6 +31,8 @@ export const settingsSchema = z.object({
   mcpPortStart: z.number().int().min(1).max(65535),
   mcpPortEnd: z.number().int().min(1).max(65535),
   memoryTokenBudget: z.number().int().min(0).max(50000),
+  memoryRetrieval: memoryRetrievalSettingsSchema.optional().default({}),
+  memoryEmbeddings: memoryEmbeddingSettingsSchema.optional().default({}),
   agentModels: z.object({
     planner: z.string().max(8192).optional(),
     executor: z.string().max(8192).optional(),
@@ -66,7 +69,8 @@ export const memorySchema = z.object({
   title: z.string().trim().min(1).max(500),
   content: z.string().min(1).max(2_000_000),
   pinned: z.boolean().default(false),
-  source: z.string().max(2000).optional()
+  source: z.string().max(2000).optional(),
+  importance: z.number().finite().min(0).max(1).optional().default(0.5)
 });
 
 export const taskSchema = z.object({

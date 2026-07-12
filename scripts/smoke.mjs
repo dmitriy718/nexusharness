@@ -45,8 +45,12 @@ try {
   if (detail.run?.execution?.cellId !== "cell-smoke" || detail.run.execution.effects.length !== 1) throw new Error("Run detail omitted execution evidence.");
   console.log(`Production smoke passed: v${health.version}, commit ${health.commit}, API port ${port}.`);
 } finally {
-  child.kill();
-  await rm(dataDir, { recursive: true, force: true });
+  if (child.exitCode === null) {
+    const exited = new Promise((resolve) => child.once("exit", resolve));
+    child.kill();
+    await Promise.race([exited, new Promise((resolve) => setTimeout(resolve, 5_000))]);
+  }
+  await rm(dataDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
 }
 
 async function availablePort() {

@@ -4,7 +4,23 @@ All notable NexusHarness changes are documented here. The format follows Keep a 
 
 ## [Unreleased]
 
-_No unreleased changes._
+### Added
+
+- Added real local Transformers.js, Ollama, and OpenAI-compatible embedding providers with model/dimension descriptors, typed failures, cancellation, bounded retry/backoff, rate-limit handling, health checks, privacy validation, and a bounded provider-session pool.
+- Added an embedded SQLite + `sqlite-vec` memory database with versioned/reversible migrations, generation-separated vector tables, workspace-partitioned KNN queries, metadata filters, durable embedding cache, indexing state, backfill checkpoints, retrieval observations, health checks, and guarded generation cleanup.
+- Added normalized/chunked memory embedding input, stable content hashes, model-aware input validation, lifecycle indexing for operator memories and retrospectives, safe stale-vector invalidation, idempotent backfill, explicit re-embedding coverage validation, atomic cutover, rollback, and CLI/API operations.
+- Added lexical-only, shadow-semantic, hybrid, and diagnostic semantic-only retrieval; normalized hybrid scoring; pinned policy; semantic thresholds; recency/task/importance signals; content deduplication; bounded MMR diversity; tokenizer-based context packing; source provenance; and explicit degraded fallback status.
+- Added workspace-scoped memory authorization inside vector queries, lexical selection, public state, mutations, and API backfill; remote content transmission is opt-in and credentials remain environment-only.
+- Added real-neural-model unit, SQLite integration, and public-API/Planner E2E tests; a versioned relevance dataset and evaluation runner; and a reproducible embedding/vector/backfill/cache benchmark.
+
+### Changed
+
+- Replaced the Planner's pin/title/task keyword selector and four-characters-per-token truncation with the production memory retriever while retaining lexical-only as the default rollback mode.
+- Expanded Memory settings with provider, rollout, ranking, privacy, chunking, caching, retry, diversity, pinned, and failure controls, and exposed per-memory indexing state plus redacted administrative diagnostics.
+
+### Performance
+
+- Bounded provider reuse and candidate-limited cached MMR produced a measured 120-memory benchmark of 7.61 ms P50 and 14.38 ms P95 end-to-end retrieval; exact vector-query P50/P95 measured 1.12/1.30 ms.
 
 ## [2.0.0] - 2026-07-11
 

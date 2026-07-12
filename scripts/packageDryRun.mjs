@@ -14,7 +14,7 @@ if (artifact.id !== `${packageJson.name}@${packageJson.version}`) throw new Erro
 if (artifact.size > 10_000_000) throw new Error(`Dry-run package is ${(artifact.size / 1_000_000).toFixed(2)} MB; the limit is 10 MB.`);
 
 const files = new Set(artifact.files.map((entry) => entry.path.replaceAll("\\", "/")));
-for (const required of ["package.json", "MIGRATION_V2.md", "server/index.ts", "src/main.tsx", "public/nexus-mark.svg", "public/manifest.webmanifest"]) {
+for (const required of ["package.json", "MIGRATION_V2.md", "docs/EMBEDDING_VECTOR_MEMORY_IMPLEMENTATION.md", "evaluation/memory-retrieval.json", "server/index.ts", "server/memory/vectorStore.ts", "src/main.tsx", "public/nexus-mark.svg", "public/manifest.webmanifest"]) {
   if (!files.has(required)) throw new Error(`Dry-run package is missing ${required}.`);
 }
 const forbidden = [...files].filter((file) =>

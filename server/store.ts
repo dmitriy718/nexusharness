@@ -2,11 +2,13 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { nanoid } from "nanoid";
 import type { AuditEvent, RunExecutionSummary, StoreShape, TaskRun } from "./types.js";
+import { defaultMemoryEmbeddingSettings, defaultMemoryRetrievalSettings, resolveMemoryConfiguration } from "./memory/config.js";
+import { countPromptTokens, memoryContentHash, workspaceNamespace } from "./memory/preprocessing.js";
 
-const dataDir = process.env.NEXUSHARNESS_DATA_DIR
+export const dataDir = process.env.NEXUSHARNESS_DATA_DIR
   ? path.resolve(process.env.NEXUSHARNESS_DATA_DIR)
   : path.join(process.cwd(), ".nexusharness");
-const storePath = path.join(dataDir, "store.json");
+export const storePath = path.join(dataDir, "store.json");
 
 const defaultStore: StoreShape = {
   settings: {
@@ -23,6 +25,8 @@ const defaultStore: StoreShape = {
     mcpPortStart: 3000,
     mcpPortEnd: 9999,
     memoryTokenBudget: 2000,
+    memoryRetrieval: defaultMemoryRetrievalSettings,
+    memoryEmbeddings: defaultMemoryEmbeddingSettings,
     agentModels: {}
   },
   runtimes: [],
@@ -36,13 +40,17 @@ const defaultStore: StoreShape = {
 let cache: StoreShape | null = null;
 let writeQueue = Promise.resolve();
 
-function mergeStore(raw: Partial<StoreShape>): StoreShape {
+export function mergeStore(raw: Partial<StoreShape>): StoreShape {
+  const rawSettings = { ...defaultStore.settings, ...(raw.settings ?? {}) };
+  const memoryConfiguration = resolveMemoryConfiguration(rawSettings);
   const merged: StoreShape = {
     ...defaultStore,
     ...raw,
     settings: {
       ...defaultStore.settings,
       ...(raw.settings ?? {}),
+      memoryRetrieval: memoryConfiguration.retrieval,
+      memoryEmbeddings: memoryConfiguration.embeddings,
       agentModels: {
         ...defaultStore.settings.agentModels,
         ...(raw.settings?.agentModels ?? {})
@@ -55,6 +63,14 @@ function mergeStore(raw: Partial<StoreShape>): StoreShape {
     approvals: raw.approvals ?? defaultStore.approvals,
     runs: raw.runs ?? defaultStore.runs
   };
+  const namespace = workspaceNamespace(merged.settings.workspaceRoot);
+  for (const entry of merged.memory) {
+    entry.namespace ??= namespace;
+    entry.importance = Number.isFinite(entry.importance) ? Math.min(1, Math.max(0, entry.importance!)) : 0.5;
+    entry.contentHash = memoryContentHash(entry, memoryConfiguration.embeddings.preprocessingVersion);
+    entry.tokenCount = countPromptTokens(entry.content);
+    entry.indexing ??= { status: "pending", updatedAt: entry.updatedAt ?? entry.createdAt ?? new Date().toISOString() };
+  }
   // A process cannot still own a run loaded from disk. Mark stale work
   // explicitly so operators can resume it instead of seeing "running" forever.
   for (const run of merged.runs) {
