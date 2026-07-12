@@ -311,7 +311,8 @@ function Get-HealthyServer {
 }
 
 function Test-PortAvailable {
-    $listener = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, $script:EffectivePort)
+    param([Parameter(Mandatory)] [int]$PortToTest)
+    $listener = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, $PortToTest)
     try {
         $listener.Start()
         return $true
@@ -320,6 +321,47 @@ function Test-PortAvailable {
     } finally {
         try { $listener.Stop() } catch { }
     }
+}
+
+function Get-PortOwnerDescription {
+    param([Parameter(Mandatory)] [int]$PortToInspect)
+    try {
+        $connection = Get-NetTCPConnection -LocalPort $PortToInspect -State Listen -ErrorAction Stop | Select-Object -First 1
+        $owner = Get-Process -Id $connection.OwningProcess -ErrorAction Stop
+        return "$($owner.ProcessName) (PID $($owner.Id))"
+    } catch {
+        return "another process"
+    }
+}
+
+function Find-AvailablePort {
+    param([Parameter(Mandatory)] [int]$StartingAfter)
+    $upperBound = [Math]::Min(65535, $StartingAfter + 100)
+    for ($candidate = $StartingAfter + 1; $candidate -le $upperBound; $candidate++) {
+        if (Test-PortAvailable -PortToTest $candidate) { return $candidate }
+    }
+    $listener = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, 0)
+    try {
+        $listener.Start()
+        return ([Net.IPEndPoint]$listener.LocalEndpoint).Port
+    } finally {
+        $listener.Stop()
+    }
+}
+
+function Resolve-LaunchPort {
+    if ($NoStart) { return }
+    if (Get-HealthyServer) { return }
+    if (Test-PortAvailable -PortToTest $script:EffectivePort) { return }
+
+    $owner = Get-PortOwnerDescription -PortToInspect $script:EffectivePort
+    if ($script:PortWasExplicit) {
+        throw "Requested port $($script:EffectivePort) is occupied by $owner. Stop that service or choose another port with -Port."
+    }
+    $previous = $script:EffectivePort
+    $script:EffectivePort = Find-AvailablePort -StartingAfter $previous
+    $env:NEXUSHARNESS_PORT = [string]$script:EffectivePort
+    Write-WarningLog "Default port $previous is occupied by $owner; using available port $($script:EffectivePort) instead."
 }
 
 function Wait-NexusHealth {
@@ -358,9 +400,7 @@ function Start-NexusHarness {
         Write-Success "NexusHarness $($existing.version) is already healthy at http://127.0.0.1:$($script:EffectivePort); no duplicate process started."
         return
     }
-    if (-not (Test-PortAvailable)) {
-        throw "Port $($script:EffectivePort) is occupied by a process that is not a healthy NexusHarness instance."
-    }
+    Resolve-LaunchPort
 
     if ($Dev) {
         Write-Info "Starting development mode. UI: http://127.0.0.1:5173  API: http://127.0.0.1:$($script:EffectivePort)"
@@ -391,6 +431,7 @@ function Start-NexusHarness {
 }
 
 try {
+    $script:PortWasExplicit = $PSBoundParameters.ContainsKey("Port") -or [bool]$env:NEXUSHARNESS_PORT
     if (-not $PSBoundParameters.ContainsKey("Port") -and $env:NEXUSHARNESS_PORT) {
         $parsedPort = 0
         if (-not [int]::TryParse($env:NEXUSHARNESS_PORT, [ref]$parsedPort) -or $parsedPort -lt 1 -or $parsedPort -gt 65535) {
@@ -409,6 +450,7 @@ try {
     Confirm-Repository
     Ensure-Node
     Initialize-DataDirectory
+    Resolve-LaunchPort
     Install-Dependencies
     Build-Application
     Update-MemoryDatabase
@@ -417,7 +459,7 @@ try {
 } catch {
     Stop-NexusChild
     Write-Log -Level "FAIL" -Message $_.Exception.Message -Color Red
-    Write-Host "Re-run with -Repair after resolving the reported prerequisite. User data was not removed." -ForegroundColor DarkGray
+    Write-Host "Review the failure above; use -Repair only for dependency or build problems. User data was not removed." -ForegroundColor DarkGray
     exit 1
 } finally {
     Set-Location -LiteralPath $script:RootDir
