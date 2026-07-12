@@ -16,7 +16,13 @@ For a repeat-safe production bootstrap on Linux, macOS, WSL, or Git Bash with No
 ./quickstart.sh
 ```
 
-The quickstart validates or installs Node where supported, repairs dependencies from `package-lock.json`, builds the application, applies memory migrations, runs an isolated smoke test, and starts the production UI/API at `http://127.0.0.1:8787`. It never deletes persistent NexusHarness data. Run `./quickstart.sh --help` for build-only, repair, development, port, and data-directory options.
+For native Windows PowerShell:
+
+```powershell
+.\quickstart.ps1
+```
+
+If local execution policy blocks scripts, use `powershell -ExecutionPolicy Bypass -File .\quickstart.ps1` for that launch. Both quickstarts validate or install Node where supported, repair dependencies from `package-lock.json`, build the application, apply memory migrations, run an isolated smoke test, and start the production UI/API at `http://127.0.0.1:8787`. They never delete persistent NexusHarness data. Run `./quickstart.sh --help` or `Get-Help .\quickstart.ps1 -Detailed`; PowerShell switches include `-NoStart`, `-Repair`, `-Dev`, `-SkipSmoke`, `-Port`, and `-DataDir`.
 
 ```bash
 npm install
