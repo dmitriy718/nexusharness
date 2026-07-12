@@ -124,12 +124,28 @@ MCP servers can be configured over stdio or Streamable HTTP, or discovered over 
 
 MCP is available only in compatibility mode in v2.0. Remote effects cannot be rolled back safely without connector-specific compensation semantics, so MCP is deliberately excluded from transactional modes.
 
+## Embedding and vector memory
+
+Memory retrieval supports four explicit rollout modes: `lexical_only` (default), `shadow_semantic`, `hybrid`, and diagnostic `semantic_only`. Hybrid mode generates real query embeddings, searches a durable workspace-partitioned `sqlite-vec` index, merges semantic and lexical/task/pinned candidates, applies normalized weighted ranking and diversity, and packs provenance-bearing memories with a tokenizer-enforced budget.
+
+Available providers are local Transformers.js, Ollama `/api/embed`, and OpenAI-compatible `/embeddings`. Local model download and remote content transmission are both disabled until explicitly enabled. Remote credentials are read from `NEXUSHARNESS_EMBEDDING_API_KEY` (or the configured environment-variable name) and are never stored in project state.
+
+The recommended rollout is:
+
+1. Keep `lexical_only` while checking diagnostics and installing/caching the selected model.
+2. Select `shadow_semantic` and run `npm run memory:backfill`.
+3. Run `npm run memory:evaluate` and inspect retrieval/fallback diagnostics.
+4. Select `hybrid`. Return to `lexical_only` for immediate rollback.
+
+See `docs/EMBEDDING_VECTOR_MEMORY_IMPLEMENTATION.md` for configuration, privacy boundaries, migrations, model changes, operations, measured quality, and performance evidence.
+
 ## Local data and control plane
 
-Application settings, runtime metadata, MCP configuration, memory, approvals, run history, execution summaries, and audit logs are stored locally in:
+Application settings, runtime metadata, MCP configuration, source memories, approvals, run history, execution summaries, and audit logs are stored locally in:
 
 ```text
 .nexusharness/store.json
+.nexusharness/memory-vectors.sqlite
 ```
 
 Set `NEXUSHARNESS_DATA_DIR` to move application state outside the source tree. NexusHarness does not require cloud authentication or send telemetry.
@@ -155,4 +171,6 @@ The release gate runs control-plane validation, version checks, strict lint, cor
 - Transactional modes intentionally exclude MCP until explicit remote-effect compensation exists.
 - Firecracker+jailer still requires real Linux/KVM verification under HR-006.
 - Connector behavior depends on operator-provided local services and model capabilities.
-- Memory retrieval uses pinned, task-type, phrase, and keyword matching within a token budget; bundled embedding similarity is outside v2.0.
+- `sqlite-vec` provides exact KNN rather than an approximate-nearest-neighbor index; very large multi-million-vector deployments need a different `VectorStore` adapter.
+- Local neural inference consumes CPU and memory; first use requires an explicitly permitted model download or a pre-provisioned model cache.
+- Remote embedding providers receive normalized memory/query text only when `allowRemoteContent` is explicitly enabled; their external retention and billing policies remain operator responsibilities.

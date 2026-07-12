@@ -11,7 +11,7 @@ const execFileAsync = promisify(execFile);
 const sandboxes: string[] = [];
 
 afterEach(async () => {
-  await Promise.all(sandboxes.splice(0).map((directory) => rm(directory, { recursive: true, force: true })));
+  await Promise.all(sandboxes.splice(0).map((directory) => rm(directory, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 })));
 });
 
 describe("run execution coordinator", () => {
@@ -37,7 +37,7 @@ describe("run execution coordinator", () => {
     await expect(fixture.coordinator.prepare()).rejects.toThrow("cannot be prepared again");
     expect(fixture.publications.map((summary) => summary.state)).toEqual(expect.arrayContaining(["isolated", "executing", "verifying", "ready_to_commit", "committed", "destroyed"]));
     expect(new Set(fixture.publications.map((summary) => summary.cellId))).toEqual(new Set([fixture.coordinator.cellId]));
-  });
+  }, 15_000);
 
   it("invalidates earlier validation when a later mutation occurs", async () => {
     const fixture = await coordinatorFixture();

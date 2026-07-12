@@ -39,8 +39,12 @@ export class ProductionHarness {
   async stop() {
     await this.browser?.close();
     await new Promise<void>((resolveClose) => this.appServer?.close(() => resolveClose()) ?? resolveClose());
-    this.apiProcess?.kill();
-    if (this.dataDir) rmSync(this.dataDir, { recursive: true, force: true });
+    if (this.apiProcess && this.apiProcess.exitCode === null) {
+      const exited = new Promise<void>((resolveExit) => this.apiProcess!.once("exit", () => resolveExit()));
+      this.apiProcess.kill();
+      await Promise.race([exited, new Promise<void>((resolveTimeout) => setTimeout(resolveTimeout, 5_000))]);
+    }
+    if (this.dataDir) rmSync(this.dataDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 
   newContext(options: BrowserContextOptions = {}): Promise<BrowserContext> {

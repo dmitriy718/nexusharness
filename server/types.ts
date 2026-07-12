@@ -1,3 +1,5 @@
+import type { MemoryEmbeddingSettings, MemoryIndexingMetadata, MemoryRetrievalSettings } from "./memory/types.js";
+
 export type RuntimeKind = "ollama" | "lmstudio" | "llamacpp-server" | "llamacpp-cli";
 export type AgentRole = "planner" | "executor" | "critic";
 export type RiskLevel = "read" | "write" | "execute" | "network";
@@ -43,6 +45,8 @@ export interface Settings {
   mcpPortStart: number;
   mcpPortEnd: number;
   memoryTokenBudget: number;
+  memoryRetrieval?: MemoryRetrievalSettings;
+  memoryEmbeddings?: MemoryEmbeddingSettings;
   agentModels: AgentModelAssignments;
 }
 
@@ -74,6 +78,12 @@ export interface MemoryEntry {
   content: string;
   pinned: boolean;
   source?: string;
+  namespace?: string;
+  importance?: number;
+  lastAccessedAt?: string;
+  tokenCount?: number;
+  contentHash?: string;
+  indexing?: MemoryIndexingMetadata;
   createdAt: string;
   updatedAt: string;
 }
