@@ -20,7 +20,7 @@ import { api, errorMessage } from "../../api/client";
 import type { RunDetailRecord, RunPhase, TaskRun } from "../../api/types";
 import { useHarness } from "../../app/StoreProvider";
 import { EmptyState, InlineAlert, RunStatusBadge, formatDate, formatDuration, handleTabListKeyDown, shortId } from "../../components/ui";
-import { displayRunValue, phaseState, runActions, runSummary } from "./runModel";
+import { displayRunValue, phaseState, runActions, runFailurePresentation, runSummary } from "./runModel";
 import { modeFromLayout, type RunMode } from "./runModeModel";
 import { OrchestrateMode, StudioMode } from "./RunModes";
 import { ExecutionInspector } from "./ExecutionInspector";
@@ -73,6 +73,7 @@ export function RunDetailPage() {
   if (!store) return null;
   if (!run) return <div className="page"><EmptyState title={detailLoading ? "Loading run" : "Run not found"} detail={detailError || (detailLoading ? "Reading the complete local run record." : "This run may have been removed from local history.")} action={!detailLoading && <Link className="button secondary" to="/runs">Back to runs</Link>} /></div>;
   const eligibility = runActions(run);
+  const failure = runFailurePresentation(run, store.settings);
   const contextualStore = detail?.run.id === run.id ? { ...store, runs: [run, ...store.runs.filter((item) => item.id !== run.id)], audit: detail.audit, approvals: detail.approvals } : store;
 
   const action = async (kind: "resume" | "cancel") => {
@@ -109,6 +110,15 @@ export function RunDetailPage() {
 
       {actionError && <InlineAlert title="Run action failed">{actionError}</InlineAlert>}
       {run.status === "waiting_approval" && <InlineAlert tone="warning" title="Operator decision required"><Link className="text-link" to="/approvals">Review the pending approval before resuming this run.</Link></InlineAlert>}
+      {failure && <section className="failure-guidance" aria-label="Run failure explanation"><InlineAlert tone="danger" title={failure.title}>
+        <p>{failure.summary}</p>
+        <p><strong>Stopped at:</strong> {failure.phase}{failure.agentRole ? ` · ${failure.agentRole}` : ""}{failure.subtask ? ` · ${failure.subtask}` : ""}</p>
+        {(failure.runtimeName || failure.model || failure.timeoutMs) && <p><strong>Runtime:</strong> {[failure.runtimeName, failure.model, failure.timeoutMs ? `${failure.timeoutMs.toLocaleString()} ms deadline` : ""].filter(Boolean).join(" · ")}</p>}
+        <p><strong>How to correct it:</strong></p>
+        <ol>{failure.corrections.map((correction) => <li key={correction}>{correction}</li>)}</ol>
+        <div className="form-actions"><Link className="button secondary" to="/models">Open Models</Link><Link className="button secondary" to="/settings">Open Settings</Link></div>
+        <details><summary>Technical details</summary><pre>{failure.technicalDetail}</pre></details>
+      </InlineAlert></section>}
 
       <div className="mode-switcher" aria-label="Workspace mode">
         {(["focus", "studio", "orchestrate"] as RunMode[]).map((item) => <button className={mode === item ? "active" : ""} aria-pressed={mode === item} onClick={() => { setMode(item); localStorage.setItem("nexusharness.runMode", item); }} key={item}>{item}</button>)}
@@ -179,7 +189,7 @@ export function RunDetailPage() {
 
 function PhaseRail({ run }: { run: TaskRun }) {
   return (
-    <ol className="phase-rail" aria-label="Run phases">
+    <ol className="phase-rail" aria-label="Run phases" tabIndex={0}>
       {phases.map((phase, index) => {
         const state = phaseState(run, phase.id);
         const Icon = phase.icon;

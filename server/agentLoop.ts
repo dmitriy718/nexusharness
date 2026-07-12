@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import path from "node:path";
 import { nanoid } from "nanoid";
-import { chatWithRuntime, listRuntimeModels } from "./runtimeAdapters.js";
+import { chatWithRuntime, listRuntimeModels, RuntimeRequestError } from "./runtimeAdapters.js";
 import { callMcpTool } from "./mcpClient.js";
 import { deleteWorkspacePath, listFiles, readWorkspaceFile, runShell, writeWorkspaceFile } from "./localTools.js";
 import { attachRunExecutionSummary, audit, loadStore, saveStore } from "./store.js";
@@ -10,7 +10,7 @@ import { WindowsRunExecutionCoordinator, type PredictedSandboxEffect } from "./e
 import { WindowsSandboxLauncher } from "./execution/windowsSandboxProvider.js";
 import type { CellSpec, EffectSet, ExecutionCell } from "./execution/contracts.js";
 import type { BrokerAuditRecord } from "./execution/broker.js";
-import type { AgentRole, AuditEvent, ChatMessage, RuntimeConfig, StoreShape, TaskRun } from "./types.js";
+import type { AgentRole, AuditEvent, ChatMessage, RunFailureDetails, RuntimeConfig, Settings, StoreShape, TaskRun } from "./types.js";
 import { getMemorySubsystem } from "./memory/subsystem.js";
 
 type RoleBindings = Record<AgentRole, { runtime: RuntimeConfig; model: string }>;
@@ -171,8 +171,105 @@ function transactionResult(execution: Awaited<ReturnType<TransactionalToolCoordi
 async function runModelTurn(role: AgentRole, messages: ChatMessage[], bindings: RoleBindings, signal: AbortSignal, mode: AgentExecutionMode = "compatibility") {
   const { runtime, model } = bindings[role];
   const tools = role === "executor" ? await availableTools(mode) : undefined;
-  const response = await chatWithRuntime(runtime, { model, messages, tools, signal });
-  return response;
+  try {
+    return await chatWithRuntime(runtime, { model, messages, tools, signal });
+  } catch (error) {
+    if (!signal.aborted && error && typeof error === "object") {
+      Object.assign(error, {
+        agentRole: role,
+        runtimeId: runtime.id,
+        runtimeName: runtime.name,
+        runtimeKind: runtime.kind,
+        runtimeEndpoint: runtime.endpoint,
+        runtimeTimeoutMs: runtime.timeoutMs,
+        model
+      });
+    }
+    throw error;
+  }
+}
+
+type FailureContextError = Error & {
+  code?: string;
+  agentRole?: AgentRole;
+  subtask?: string;
+  runtimeId?: string;
+  runtimeName?: string;
+  runtimeKind?: RuntimeConfig["kind"];
+  runtimeEndpoint?: string;
+  runtimeTimeoutMs?: number;
+  model?: string;
+};
+
+export function classifyRunFailure(error: unknown, run: TaskRun, settings: Settings): RunFailureDetails {
+  const context = (error instanceof Error ? error : new Error(String(error))) as FailureContextError;
+  const technicalDetail = context.message || "Unknown run failure.";
+  const occurredAt = new Date().toISOString();
+  const base = {
+    technicalDetail,
+    occurredAt,
+    phase: run.phase,
+    agentRole: context.agentRole,
+    subtask: context.subtask,
+    runtimeId: context.runtimeId,
+    runtimeName: context.runtimeName,
+    runtimeKind: context.runtimeKind,
+    endpoint: context.runtimeEndpoint,
+    model: context.model,
+    timeoutMs: context.runtimeTimeoutMs
+  };
+  if (context.code === "runtime_timeout" || error instanceof RuntimeRequestError && error.code === "runtime_timeout") {
+    const timeoutMs = context.runtimeTimeoutMs ?? (error instanceof RuntimeRequestError ? error.timeoutMs : undefined);
+    const role = context.agentRole ?? "model";
+    const timeout = timeoutMs ? `${Math.round(timeoutMs / 1000)} seconds` : "the configured deadline";
+    const corrections = [
+      `Increase the timeout for ${context.runtimeName ?? "the selected runtime"}${timeoutMs ? ` above ${timeoutMs.toLocaleString()} ms` : ""} in Models.`,
+      ...(role === "executor" && settings.maxParallelExecutors > 1 ? [`Reduce Max parallel executors from ${settings.maxParallelExecutors} to 1 in Settings so local model requests are not queued concurrently.`] : []),
+      `Retry with a smaller or faster model if ${context.model ?? "the selected model"} cannot consistently answer inside the deadline.`
+    ];
+    return {
+      ...base,
+      code: "runtime_timeout",
+      title: `${capitalize(role)} model request timed out`,
+      summary: `${capitalize(role)} using ${context.model ?? "the selected model"} on ${context.runtimeName ?? "the configured runtime"} did not finish within ${timeout}. The run stopped during ${run.phase} before that model response could be applied.`,
+      corrections,
+      retryable: true,
+      timeoutMs
+    };
+  }
+  if (["runtime_unavailable", "runtime_http_error", "runtime_invalid_response"].includes(context.code ?? "")) {
+    const unavailable = context.code === "runtime_unavailable";
+    return {
+      ...base,
+      code: context.code as RunFailureDetails["code"],
+      title: unavailable ? "Model runtime is unavailable" : "Model runtime returned an invalid response",
+      summary: `${context.runtimeName ?? "The selected runtime"} could not complete the ${context.agentRole ?? "model"} request during ${run.phase}.`,
+      corrections: [
+        `Open Models and test ${context.runtimeName ?? "the selected runtime"}.`,
+        ...(context.runtimeEndpoint ? [`Verify that ${context.runtimeEndpoint} is running and reachable from NexusHarness.`] : []),
+        "Confirm that the assigned model exists, then retry the run."
+      ],
+      retryable: true
+    };
+  }
+  if (/approval required|approval rejected/i.test(technicalDetail)) {
+    return { ...base, code: "approval_failed", title: "Approval blocked execution", summary: technicalDetail, corrections: ["Open Approvals, review the requested operation, then resume the run after a decision."], retryable: true };
+  }
+  if (/validation failed|lint|tests? failed/i.test(technicalDetail)) {
+    return { ...base, code: "validation_failed", title: "Automated validation failed", summary: technicalDetail, corrections: ["Open Outputs to inspect the exact validation command output.", "Correct the reported lint or test failure, then retry the run."], retryable: true };
+  }
+  return {
+    ...base,
+    code: "execution_failed",
+    title: `Run failed during ${run.phase}`,
+    summary: technicalDetail,
+    corrections: ["Open Activity and Outputs for the last successful event and technical detail.", "Correct the underlying runtime, tool, approval, or validation problem, then retry the run."],
+    retryable: true
+  };
+}
+
+function capitalize(value: string): string {
+  return value ? value[0].toUpperCase() + value.slice(1) : value;
 }
 
 function serializeToolResult(result: unknown): string {
@@ -231,10 +328,14 @@ async function runExecutorBatch(runId: string, task: string, plan: string[], cri
   const results: Array<{ subtask: string; output: string }> = [];
   for (let index = 0; index < plan.length; index += maxParallelExecutors) {
     const batch = plan.slice(index, index + maxParallelExecutors);
-    const batchResults = await Promise.all(batch.map(async (subtask) => ({
-      subtask,
-      output: await runExecutorSubtask(runId, task, plan, subtask, criticText, bindings, signal, mode, transaction, previousOutput)
-    })));
+    const batchResults = await Promise.all(batch.map(async (subtask) => {
+      try {
+        return { subtask, output: await runExecutorSubtask(runId, task, plan, subtask, criticText, bindings, signal, mode, transaction, previousOutput) };
+      } catch (error) {
+        if (error && typeof error === "object") Object.assign(error, { subtask });
+        throw error;
+      }
+    }));
     results.push(...batchResults);
   }
   return results;
@@ -445,6 +546,7 @@ function resetRunAttempt(run: TaskRun): void {
   delete run.validationOutput;
   delete run.result;
   delete run.error;
+  delete run.failure;
 }
 
 async function prepareRunTransaction(run: TaskRun, store: StoreShape, config: AgentExecutionConfig): Promise<LiveRunCoordinator> {
@@ -673,6 +775,7 @@ export async function executeRun(runId: string) {
   }
   let transaction = activeTransactions.get(runId);
   try {
+    delete run.failure;
     const executionConfig: AgentExecutionConfig = transaction
       ? { mode: transaction instanceof WindowsRunExecutionCoordinator ? "windows-sandbox" : "transactional" }
       : resolveAgentExecutionConfig();
@@ -818,10 +921,18 @@ export async function executeRun(runId: string) {
     const approvalPause = !controller.signal.aborted && errorMessage.includes("Approval required") && !errorMessage.includes("Approval rejected");
     const latest = await loadStore();
     const failed = latest.runs.find((item) => item.id === runId);
+    let recordedFailure: RunFailureDetails | undefined;
     if (failed) {
       const canceled = controller.signal.aborted || failed.status === "canceled";
       failed.status = canceled ? "canceled" : approvalPause ? "waiting_approval" : "failed";
-      failed.error = canceled ? "Run canceled by operator." : errorMessage;
+      if (canceled || approvalPause) {
+        failed.error = canceled ? "Run canceled by operator." : errorMessage;
+        delete failed.failure;
+      } else {
+        failed.failure = classifyRunFailure(error, failed, latest.settings);
+        recordedFailure = failed.failure;
+        failed.error = failed.failure.summary;
+      }
       failed.updatedAt = new Date().toISOString();
       await saveStore(latest);
     }
@@ -834,7 +945,24 @@ export async function executeRun(runId: string) {
       }
     }
     if (!controller.signal.aborted) {
-      await audit({ actor: "system", action: "run.error", risk: "execute", status: "error", message: errorMessage });
+      await audit({
+        actor: "system",
+        action: "run.error",
+        risk: "execute",
+        status: "error",
+        message: recordedFailure?.title ?? errorMessage,
+        details: recordedFailure ? {
+          runId,
+          code: recordedFailure.code,
+          phase: recordedFailure.phase,
+          agentRole: recordedFailure.agentRole,
+          subtask: recordedFailure.subtask,
+          runtimeId: recordedFailure.runtimeId,
+          model: recordedFailure.model,
+          timeoutMs: recordedFailure.timeoutMs,
+          retryable: recordedFailure.retryable
+        } : undefined
+      });
     }
   } finally {
     activeRuns.delete(runId);

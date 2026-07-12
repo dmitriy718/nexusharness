@@ -310,6 +310,16 @@
     --context-height: 52px;
   }
 
+  .failure-guidance .form-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .failure-guidance .form-actions .button {
+    justify-content: center;
+    width: 100%;
+  }
+
   .context-bar {
     padding: 0 14px;
   }
