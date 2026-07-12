@@ -6,6 +6,7 @@ All notable NexusHarness changes are documented here. The format follows Keep a 
 
 ### Added
 
+- Added a root `quickstart.sh` for idempotent new-machine deployment with prerequisite detection, optional user-scoped Node installation, lockfile-based dependency repair, production build and smoke validation, memory migrations, healthy-instance detection, signal-safe startup, verbose diagnostics, and a Nexus terminal banner.
 - Added real local Transformers.js, Ollama, and OpenAI-compatible embedding providers with model/dimension descriptors, typed failures, cancellation, bounded retry/backoff, rate-limit handling, health checks, privacy validation, and a bounded provider-session pool.
 - Added an embedded SQLite + `sqlite-vec` memory database with versioned/reversible migrations, generation-separated vector tables, workspace-partitioned KNN queries, metadata filters, durable embedding cache, indexing state, backfill checkpoints, retrieval observations, health checks, and guarded generation cleanup.
 - Added normalized/chunked memory embedding input, stable content hashes, model-aware input validation, lifecycle indexing for operator memories and retrospectives, safe stale-vector invalidation, idempotent backfill, explicit re-embedding coverage validation, atomic cutover, rollback, and CLI/API operations.
