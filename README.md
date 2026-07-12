@@ -10,6 +10,14 @@ This repository does not contain mock model responses, hardcoded secrets, or fab
 
 Requirements: Node.js 20 or newer and npm.
 
+For a repeat-safe production bootstrap on Linux, macOS, WSL, or Git Bash with Node already installed:
+
+```bash
+./quickstart.sh
+```
+
+The quickstart validates or installs Node where supported, repairs dependencies from `package-lock.json`, builds the application, applies memory migrations, runs an isolated smoke test, and starts the production UI/API at `http://127.0.0.1:8787`. It never deletes persistent NexusHarness data. Run `./quickstart.sh --help` for build-only, repair, development, port, and data-directory options.
+
 ```bash
 npm install
 npm run dev
