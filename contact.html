@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Contact Nexus Harness</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <!-- Header -->
+  <header>
+    <div class="logo">Nexus Harness</div>
+    <nav>
+      <ul>
+        <li><a href="#home">Home</a></li>
+        <li><a href="about.html">About</a></li>
+        <li><a href="features.html">Features</a></li>
+        <li><a href="download.html">Download</a></li>
+        <li><a href="contact.html">Contact</a></li>
+      </ul>
+    </nav>
+  </header>
+
+  <!-- Contact Form -->
+  <section id="contact" class="contact">
+    <h2>Contact Us</h2>
+    <form action="/submit-trial-form" method="post">
+      <label for="name">Name:</label>
+      <input type="text" id="name" name="name" required aria-label="Name">
+
+      <label for="email">Email:</label>
+      <input type="email" id="email" name="email" required aria-label="Email">
+
+      <label for="message">Message:</label>
+      <textarea id="message" name="message" rows="4" required aria-label="Message"></textarea>
+
+      <button type="submit">Submit</button>
+    </form>
+  </section>
+
+  <!-- Footer -->
+  <footer>
+    <ul>
+      <li><a href="#privacy">Privacy Policy</a></li>
+      <li><a href="#terms">Terms of Service</a></li>
+      <li><a href="#legal">Legal</a></li>
+      <li><a href="#accessibility">Accessibility</a></li>
+    </ul>
+  </footer>
+</body>
+</html>
