@@ -121,7 +121,8 @@ export class PortableValidationCommandExecutor implements PortableActionExecutor
           prepared.signal,
           prepared.context,
           async () => undefined,
-          this.options.toolAudit
+          this.options.toolAudit,
+          { throwOnNonZero: false }
         );
         return completed;
       });

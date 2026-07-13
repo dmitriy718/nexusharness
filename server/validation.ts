@@ -7,7 +7,7 @@ export const runtimeSchema = z.object({
   endpoint: z.string().url().refine((value) => value.startsWith("http://") || value.startsWith("https://"), "Endpoint must use HTTP or HTTPS.").optional(),
   binaryPath: z.string().max(4096).optional(),
   modelPath: z.string().max(4096).optional(),
-  timeoutMs: z.number().int().min(1000).max(300000).default(60000)
+  timeoutMs: z.number().int().min(1000).max(300000).default(300000)
 }).superRefine((value, ctx) => {
   if (["ollama", "lmstudio", "llamacpp-server"].includes(value.kind) && !value.endpoint) {
     ctx.addIssue({ code: "custom", path: ["endpoint"], message: "HTTP runtimes require an endpoint URL." });

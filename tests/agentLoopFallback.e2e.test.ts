@@ -71,7 +71,7 @@ describe.sequential("JSON-fallback executor completion", () => {
     });
     const completed = await waitForRun(apiBase, started.id, 30_000);
     expect(completed.run).toMatchObject({ status: "passed", phase: "done", criticScore: 8 });
-    expect(completed.run.executorOutput).toContain("NexusHarness reached the 16-turn action boundary");
+    expect(completed.run.executorOutput).toContain("NexusHarness reached the 48-turn action boundary");
     expect(completed.run.executorOutput).toContain("NexusHarness observed tool evidence");
     expect(completed.run.validationOutput).toContain("Tests (");
     expect(started.workspaceRoot).toBe(path.join(dataDirectory, "exports", started.id));

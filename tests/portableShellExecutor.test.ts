@@ -56,16 +56,16 @@ describe("portable validation command executor", () => {
     expect(fixture.executor.takeResult("action-1")).toBeUndefined();
   });
 
-  it("redacts failed command output from receipts", async () => {
+  it("returns a nonzero validation result without poisoning the transaction receipt", async () => {
     const fixture = await commandFixture();
     const registration = fixture.executor.register("action-1", { command: commands().fail, settings: fixture.settings });
     const action = contract(registration);
     await fixture.executor.authorize!({ cell: cell("isolated"), workingDirectory: fixture.root, contract: action, lease: lease(fixture.settings.shellPath) });
     const receipt = await fixture.executor.execute({ cell: cell("executing"), workingDirectory: fixture.root, contract: action, lease: lease(fixture.settings.shellPath) });
 
-    expect(receipt).toMatchObject({ status: "failed", evidence: expect.arrayContaining([expect.objectContaining({ name: "Operation result", status: "failed" })]) });
+    expect(receipt).toMatchObject({ status: "succeeded", observedEffects: [], variances: [] });
     expect(JSON.stringify(receipt)).not.toContain("raw-validation-secret");
-    expect(fixture.executor.takeResult("action-1")).toBeUndefined();
+    expect(fixture.executor.takeResult("action-1")).toMatchObject({ code: 7, stderr: expect.stringContaining("raw-validation-secret") });
   });
 
   it("rejects unlisted commands and contract authority mismatch before approval", async () => {

@@ -21,8 +21,8 @@ describe("runtime configuration model", () => {
   });
 
   it("sends a minimal connector-specific payload", () => {
-    expect(runtimePayload({ ...runtimeDraft("ollama"), name: "  Local  " })).toEqual({ name: "Local", kind: "ollama", endpoint: "http://127.0.0.1:11434", timeoutMs: 60000 });
-    expect(runtimePayload({ ...runtimeDraft("llamacpp-cli"), name: "CLI", binaryPath: " llama.exe ", modelPath: " model.gguf " })).toEqual({ name: "CLI", kind: "llamacpp-cli", binaryPath: "llama.exe", modelPath: "model.gguf", timeoutMs: 60000 });
+    expect(runtimePayload({ ...runtimeDraft("ollama"), name: "  Local  " })).toEqual({ name: "Local", kind: "ollama", endpoint: "http://127.0.0.1:11434", timeoutMs: 300000 });
+    expect(runtimePayload({ ...runtimeDraft("llamacpp-cli"), name: "CLI", binaryPath: " llama.exe ", modelPath: " model.gguf " })).toEqual({ name: "CLI", kind: "llamacpp-cli", binaryPath: "llama.exe", modelPath: "model.gguf", timeoutMs: 300000 });
   });
 
   it("reports exactly which roles are affected by runtime removal", () => {

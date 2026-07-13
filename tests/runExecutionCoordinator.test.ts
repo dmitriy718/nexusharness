@@ -54,6 +54,21 @@ describe("run execution coordinator", () => {
     await expect(access(join(fixture.root, "second.txt"))).rejects.toThrow();
   });
 
+  it("keeps a nonzero validation result retryable and preserves exact diagnostics", async () => {
+    const fixture = await coordinatorFixture({ validationCommands: [commands().conditional] });
+    await fixture.coordinator.prepare();
+    const failed = await fixture.coordinator.validate(commands().conditional);
+    expect(failed).toMatchObject({ receipt: { status: "succeeded" }, result: { code: 7, stderr: expect.stringContaining("missing ready.txt") } });
+    expect(failed.summary.state).toBe("verifying");
+    await expect(fixture.coordinator.verify()).resolves.toMatchObject({ ready: false, reason: expect.stringContaining("validation command") });
+
+    await fixture.coordinator.write("ready.txt", "ready\n");
+    await expect(fixture.coordinator.validate(commands().conditional)).resolves.toMatchObject({ receipt: { status: "succeeded" }, result: { code: 0 } });
+    await expect(fixture.coordinator.verify()).resolves.toMatchObject({ ready: true });
+    await fixture.coordinator.rollback();
+    await fixture.coordinator.destroy();
+  });
+
   it("blocks promotion when validation creates an undeclared effect", async () => {
     const fixture = await coordinatorFixture();
     await fixture.coordinator.prepare();
@@ -248,14 +263,16 @@ async function repository() {
 
 function commands() {
   return process.platform === "win32"
-    ? {
+      ? {
         pass: "Get-Content -LiteralPath 'base.txt' | Out-Null",
         passTwo: "Get-Item -LiteralPath 'delete-me.txt' | Out-Null",
+        conditional: "if (-not (Test-Path -LiteralPath 'ready.txt')) { Write-Error 'missing ready.txt'; exit 7 }",
         mutate: "Set-Content -LiteralPath 'validation-side-effect.txt' -Value 'unexpected' -Encoding UTF8"
       }
-    : {
+      : {
         pass: "test -f base.txt",
         passTwo: "test -f delete-me.txt",
+        conditional: "test -f ready.txt || { printf 'missing ready.txt\\n' >&2; exit 7; }",
         mutate: "printf 'unexpected\\n' > validation-side-effect.txt"
       };
 }
