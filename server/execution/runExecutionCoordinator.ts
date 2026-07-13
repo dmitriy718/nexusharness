@@ -257,18 +257,19 @@ export class RunExecutionCoordinator {
       expectedEffects: [],
       forbiddenEffects: [],
       invariants: ["No Git-visible repository path changes."],
-      successEvidence: ["The command exits zero and the broker observes no new repository effects."],
+      successEvidence: ["The command completes with a captured exit status and the broker observes no new repository effects."],
       rollback: { kind: "discard_cell", description: "Discard the run transaction." }
     });
     try {
       const execution = await this.service.execute(this.cellId, contract, authority);
-      if (execution.receipt.status === "succeeded") {
+      const result = this.validations.takeResult(contractId);
+      if (execution.receipt.status === "succeeded" && result?.code === 0) {
         if (this.validationCommands.has(normalized)) this.passedValidations.add(normalized);
         this.verificationReady = false;
       } else {
         this.passedValidations.clear();
       }
-      return { ...execution, result: this.validations.takeResult(contractId) };
+      return { ...execution, result };
     } catch (error) {
       this.validations.release(contractId);
       throw error;

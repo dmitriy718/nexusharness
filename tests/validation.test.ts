@@ -36,6 +36,11 @@ describe("runtime validation", () => {
     expect(parsed.endpoint).toBe("http://127.0.0.1:11434");
   });
 
+  it("defaults model response inactivity to five minutes for long local tool payloads", () => {
+    const parsed = runtimeSchema.parse({ name: "Ollama", kind: "ollama", endpoint: "http://127.0.0.1:11434" });
+    expect(parsed.timeoutMs).toBe(300000);
+  });
+
   it("rejects non-HTTP runtime endpoints", () => {
     expect(() => runtimeSchema.parse({ name: "Bad", kind: "ollama", endpoint: "ftp://127.0.0.1/model", timeoutMs: 60000 })).toThrow(/HTTP or HTTPS/);
   });

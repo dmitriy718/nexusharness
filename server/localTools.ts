@@ -291,7 +291,8 @@ export async function runShell(
   signal?: AbortSignal,
   context: ApprovalContext = {},
   authorize: LocalApprovalAuthorizer = requireApproval,
-  recordAudit: LocalAuditWriter = audit
+  recordAudit: LocalAuditWriter = audit,
+  options: { throwOnNonZero?: boolean } = {}
 ) {
   if (!command.trim()) throw new Error("Shell command cannot be empty.");
   if (command.length > 100_000) throw new Error("Shell command exceeds the 100,000 character safety limit.");
@@ -362,7 +363,7 @@ export async function runShell(
     message: command,
     details: { ...result, ...context }
   });
-  if (result.code !== 0) {
+  if (result.code !== 0 && options.throwOnNonZero !== false) {
     throw new Error(`Command failed with exit code ${result.code}: ${command}\n${result.stderr || result.stdout}`);
   }
   return result;

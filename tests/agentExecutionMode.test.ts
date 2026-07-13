@@ -10,6 +10,7 @@ import {
   reserveRunSlot,
   resolveEnabledMcpTool,
   resolveAgentExecutionConfig,
+  shouldContinueExecutorAfterNoAction,
   type TransactionalToolCoordinator
 } from "../server/agentLoop.js";
 
@@ -115,6 +116,14 @@ describe("agent execution mode", () => {
 
     expect(coordinator.write).toHaveBeenCalledWith("src/app.ts", "next", context);
     expect(coordinator.delete).toHaveBeenCalledWith("old.ts", context);
+  });
+
+  it("continues bounded executor turns that describe unfinished work without requesting an action", () => {
+    expect(shouldContinueExecutorAfterNoAction("", 0, true)).toBe(true);
+    expect(shouldContinueExecutorAfterNoAction("Now I need to create the remaining files.", 0, true)).toBe(true);
+    expect(shouldContinueExecutorAfterNoAction("The assigned subtask is complete.", 0, true)).toBe(false);
+    expect(shouldContinueExecutorAfterNoAction("Now I need to continue.", 0, false)).toBe(false);
+    expect(shouldContinueExecutorAfterNoAction("Now I need to continue.", 2, true)).toBe(false);
   });
 
   it("fails closed for arbitrary host shell, unknown tools, and failed proof", async () => {

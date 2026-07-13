@@ -18,7 +18,7 @@ const endpoints: Record<Exclude<RuntimeKind, "llamacpp-cli">, string> = {
 };
 
 export function runtimeDraft(kind: RuntimeKind = "ollama"): RuntimeDraft {
-  return { name: "", kind, endpoint: kind === "llamacpp-cli" ? "" : endpoints[kind], binaryPath: "", modelPath: "", timeoutMs: 60000 };
+  return { name: "", kind, endpoint: kind === "llamacpp-cli" ? "" : endpoints[kind], binaryPath: "", modelPath: "", timeoutMs: 300000 };
 }
 
 export function changeRuntimeKind(draft: RuntimeDraft, kind: RuntimeKind): RuntimeDraft {
