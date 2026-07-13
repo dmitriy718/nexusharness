@@ -62,11 +62,14 @@ describe("agent execution mode", () => {
     expect(toolNames("windows-sandbox")).toEqual(["file_list", "file_read", "file_write", "file_delete", "sandbox_exec"]);
   });
 
-  it("admits only one pending run per service instance", () => {
+  it("admits concurrent run identities while rejecting duplicate activation", () => {
     expect(reserveRunSlot("run-slot-a")).toBe(true);
+    expect(reserveRunSlot("run-slot-b")).toBe(true);
+    expect(reserveRunSlot("run-slot-a")).toBe(false);
     expect(reserveRunSlot("run-slot-b")).toBe(false);
     releaseRunSlot("run-slot-a");
-    expect(reserveRunSlot("run-slot-b")).toBe(true);
+    expect(reserveRunSlot("run-slot-a")).toBe(true);
+    releaseRunSlot("run-slot-a");
     releaseRunSlot("run-slot-b");
   });
 

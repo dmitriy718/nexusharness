@@ -423,7 +423,7 @@ app.post("/api/tasks/:id/resume", asyncRoute(async (req, res) => {
   if (run.status !== "waiting_approval" && run.status !== "failed" && run.status !== "canceled") {
     return res.status(409).json({ error: `Run cannot be resumed from status ${run.status}.` });
   }
-  if (!reserveRunSlot(id)) return res.status(409).json({ error: "Another run is already active. NexusHarness permits one active run per service instance." });
+  if (!reserveRunSlot(id)) return res.status(409).json({ error: "Run is already active or pending activation." });
   try {
     run.workspaceRoot ??= await prepareRunExportWorkspace(run.id);
     run.status = "running";
