@@ -165,10 +165,12 @@ async function appendWorklog(kind, claim, detail) {
   const day = String(now.getUTCDate()).padStart(2, "0");
   const filePath = path.join(controlDir, "worklogs", year, month, year + "-" + month + "-" + day + ".md");
   await mkdir(path.dirname(filePath), { recursive: true });
-  if (!(await exists(filePath))) {
+  const newWorklog = !(await exists(filePath));
+  if (newWorklog) {
     await writeFile(filePath, "# NexusHarness worklog — " + year + "-" + month + "-" + day + "\n\n", "utf8");
   }
   const entry = [
+    ...(newWorklog ? [] : [""]),
     "## " + new Date().toISOString() + " — " + kind + ": " + claim.id,
     "",
     "- Agent: " + claim.agent,
@@ -176,10 +178,8 @@ async function appendWorklog(kind, claim, detail) {
     "- Areas: " + claim.areas.join(", "),
     "- Resources: " + (claim.resources.join(", ") || "none"),
     "- Version impact: " + claim.versionImpact,
-    detail ? "\n" + detail.trim() : "",
-    "",
-    ""
-  ].join("\n");
+    detail ? "\n" + detail.trim() : ""
+  ].join("\n") + "\n";
   await appendFile(filePath, entry, "utf8");
 }
 
