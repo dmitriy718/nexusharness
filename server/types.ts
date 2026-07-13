@@ -205,6 +205,7 @@ export interface RunFailureDetails {
 export interface TaskRun {
   id: string;
   task: string;
+  workspaceRoot?: string;
   status: "running" | "waiting_approval" | "passed" | "failed" | "canceled";
   phase: "plan" | "execute" | "critic" | "test" | "retrospective" | "done";
   iteration: number;

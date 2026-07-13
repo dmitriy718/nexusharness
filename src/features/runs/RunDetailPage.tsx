@@ -128,7 +128,7 @@ export function RunDetailPage() {
     <div className="run-detail-page">
       <header className="run-detail-header">
         <button className="icon-button" aria-label="Back to runs" onClick={() => navigate("/runs")}><ArrowLeft /></button>
-        <div className="run-title"><div><span>#{shortId(run.id)}</span><RunStatusBadge status={run.status} /></div><h1>{run.task}</h1><p>Started {formatDate(run.createdAt)} · {formatDuration(run.createdAt, run.updatedAt)} · iteration {run.iteration}/{run.maxIterations}</p></div>
+        <div className="run-title"><div><span>#{shortId(run.id)}</span><RunStatusBadge status={run.status} /></div><h1>{run.task}</h1><p>Started {formatDate(run.createdAt)} · {formatDuration(run.createdAt, run.updatedAt)} · iteration {run.iteration}/{run.maxIterations}</p>{run.workspaceRoot && <p><strong>Isolated export:</strong> <code>{run.workspaceRoot}</code></p>}</div>
         <div className="run-header-actions">
           <Link className="button secondary" to={"/runs?duplicate=" + run.id}><Copy />Duplicate</Link>
           {eligibility.canResume && <button className="button secondary" disabled={Boolean(busy)} onClick={() => void action("resume")}><RotateCcw />{busy === "resume" ? "Resuming…" : run.status === "waiting_approval" ? "Resume after decision" : "Retry"}</button>}

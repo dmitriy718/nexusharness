@@ -7,9 +7,12 @@ All notable NexusHarness changes are documented here. The format follows Keep a 
 ### Added
 
 - Added Glassbox Live, an accessible global run-observability modal backed by a bounded same-origin event stream for live provider-emitted reasoning, model output, tool calls/results, validation, critic decisions, phases, and failures. The UI explicitly distinguishes literal provider reasoning from inferred execution state.
+- New tasks now receive an owned clean export repository at the logged-in user's `~/.nexusharness/<task-id>` path. Run records and detail views expose the exact location, and model tools plus validation bind to that isolated export rather than the configured source workspace.
 
 ### Fixed
 
+- Closed a severity-one self-host containment path: execution now fails closed unless a mode is explicitly configured, compatibility host execution requires a separate acknowledgement and Approval mode, and realpath checks reject workspaces that overlap the NexusHarness installation. A service instance also refuses a second active run.
+- Canceling or timing out a compatibility shell command now terminates its descendant process tree, preventing model-launched servers from surviving a failed run and locking the dependency tree.
 - JSON-fallback executors now recognize single direct calls and direct call arrays as well as wrapped `tool_calls` objects, critic input includes bounded harness-observed tool evidence, and already-observed success/failure cycles since the last mutation are safely suppressed. Reaching the 16-turn safety boundary now forwards evidence to objective validation and critic review instead of automatically failing otherwise-correct work.
 - Ollama agent turns now consume the official streaming response, treat the configured timeout as an inactivity window that resets while tokens arrive, retain streamed tool calls, and cap role-specific output. Long active generations are no longer killed at a fixed wall-clock minute or mislabeled as endpoint failures.
 

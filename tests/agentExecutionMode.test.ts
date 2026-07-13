@@ -4,6 +4,8 @@ import {
   invokeTool,
   localToolSchemas,
   parsePredictedSandboxEffects,
+  releaseRunSlot,
+  reserveRunSlot,
   resolveAgentExecutionConfig,
   type TransactionalToolCoordinator
 } from "../server/agentLoop.js";
@@ -32,9 +34,13 @@ function fakeCoordinator(): TransactionalToolCoordinator {
 }
 
 describe("agent execution mode", () => {
-  it("defaults to explicit compatibility mode", () => {
-    expect(resolveAgentExecutionConfig({})).toEqual({ mode: "compatibility" });
-    expect(resolveAgentExecutionConfig({ NEXUSHARNESS_EXECUTION_MODE: " compatibility " })).toEqual({ mode: "compatibility" });
+  it("fails closed unless execution mode and host exposure are explicit", () => {
+    expect(() => resolveAgentExecutionConfig({})).toThrow(/Execution is disabled/);
+    expect(() => resolveAgentExecutionConfig({ NEXUSHARNESS_EXECUTION_MODE: " compatibility " })).toThrow(/ALLOW_HOST_EXECUTION/);
+    expect(resolveAgentExecutionConfig({
+      NEXUSHARNESS_EXECUTION_MODE: " compatibility ",
+      NEXUSHARNESS_ALLOW_HOST_EXECUTION: "true"
+    })).toEqual({ mode: "compatibility" });
   });
 
   it("requires an absolute transaction data root", () => {
@@ -54,6 +60,14 @@ describe("agent execution mode", () => {
     expect(toolNames("compatibility")).toEqual(["file_list", "file_read", "file_write", "file_delete", "shell_exec"]);
     expect(toolNames("transactional")).toEqual(["file_list", "file_read", "file_write", "file_delete"]);
     expect(toolNames("windows-sandbox")).toEqual(["file_list", "file_read", "file_write", "file_delete", "sandbox_exec"]);
+  });
+
+  it("admits only one pending run per service instance", () => {
+    expect(reserveRunSlot("run-slot-a")).toBe(true);
+    expect(reserveRunSlot("run-slot-b")).toBe(false);
+    releaseRunSlot("run-slot-a");
+    expect(reserveRunSlot("run-slot-b")).toBe(true);
+    releaseRunSlot("run-slot-b");
   });
 
   it("routes every transactional file operation through the coordinator", async () => {

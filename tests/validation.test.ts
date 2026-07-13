@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -130,7 +130,49 @@ describe("shell execution", () => {
   it("throws on nonzero exit codes", async () => {
     await expect(runShell(testSettings(), "exit 7")).rejects.toThrow(/exit code/);
   });
+
+  it("terminates descendant processes when a command is canceled", async () => {
+    const workspace = await mkdtemp(path.join(tmpdir(), "nexusharness-shell-tree-"));
+    const controller = new AbortController();
+    const command = process.platform === "win32"
+      ? "$p = Start-Process powershell.exe -WindowStyle Hidden -ArgumentList @('-NoProfile','-Command','Start-Sleep -Seconds 30') -PassThru; Set-Content -Path child.pid -Value $p.Id; Wait-Process -Id $p.Id"
+      : "sleep 30 & echo $! > child.pid; wait";
+    try {
+      const outcome = runShell(testSettings(workspace), command, controller.signal).then(
+        () => new Error("Command unexpectedly completed."),
+        (error: Error) => error
+      );
+      const childPid = Number(await waitForFile(path.join(workspace, "child.pid")));
+      expect(childPid).toBeGreaterThan(0);
+      controller.abort();
+      await expect(outcome).resolves.toMatchObject({ message: expect.stringMatching(/process tree was terminated/) });
+      await waitForProcessExit(childPid);
+      expect(processExists(childPid)).toBe(false);
+    } finally {
+      controller.abort();
+      await rm(workspace, { recursive: true, force: true });
+    }
+  }, 15_000);
 });
+
+async function waitForFile(filePath: string): Promise<string> {
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    try { return (await readFile(filePath, "utf8")).trim(); }
+    catch { await new Promise((resolve) => setTimeout(resolve, 25)); }
+  }
+  throw new Error(`Timed out waiting for ${filePath}`);
+}
+
+function processExists(pid: number): boolean {
+  try { process.kill(pid, 0); return true; }
+  catch { return false; }
+}
+
+async function waitForProcessExit(pid: number): Promise<void> {
+  for (let attempt = 0; attempt < 200 && processExists(pid); attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+}
 
 describe("text tool-call fallback", () => {
   it("parses tool calls from JSON content for text-only models", () => {

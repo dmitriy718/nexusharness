@@ -47,7 +47,10 @@ describe.sequential("memory retrieval through the normal API and Planner context
           } else if (system.includes("structured retrospective")) {
             json(response, 200, { message: { content: "The retrieval-backed plan preserved recovery guidance and validation." }, done: true });
           } else {
-            json(response, 200, { message: { content: "Implemented the bounded recovery workflow with verification evidence." }, done: true });
+            const toolResults = messages.filter((message) => message.role === "tool").length;
+            json(response, 200, { message: { content: toolResults
+              ? "Implemented the bounded recovery workflow with verification evidence."
+              : '{"name":"file_write","arguments":{"path":"recovery.txt","content":"VERIFIED_RECOVERY\\n"}}' }, done: true });
           }
           return;
         }
@@ -75,7 +78,14 @@ describe.sequential("memory retrieval through the normal API and Planner context
     await writeFile(path.join(dataDirectory, "store.json"), JSON.stringify(store, null, 2), "utf8");
     apiProcess = spawn(process.execPath, [path.resolve("node_modules/tsx/dist/cli.mjs"), "server/index.ts"], {
       cwd: process.cwd(), windowsHide: true,
-      env: { ...process.env, NEXUSHARNESS_PORT: String(apiPort), NEXUSHARNESS_DATA_DIR: dataDirectory },
+      env: {
+        ...process.env,
+        NEXUSHARNESS_PORT: String(apiPort),
+        NEXUSHARNESS_DATA_DIR: dataDirectory,
+        NEXUSHARNESS_EXECUTION_MODE: "transactional",
+        NEXUSHARNESS_EXECUTION_DIR: path.join(dataDirectory, "transactions"),
+        NEXUSHARNESS_RUN_EXPORT_DIR: path.join(dataDirectory, "exports")
+      },
       stdio: ["ignore", "pipe", "pipe"]
     });
     apiProcess.stdout?.on("data", (chunk) => { apiOutput = `${apiOutput}${String(chunk)}`.slice(-20_000); });
