@@ -871,7 +871,7 @@ export async function abandonRunTransaction(runId: string, reason = "Run transac
 
 export async function startTask(task: string): Promise<TaskRun> {
   const runId = nanoid();
-  if (!reserveRunSlot(runId)) throw new Error("Another run is already active. NexusHarness permits one active run per service instance.");
+  if (!reserveRunSlot(runId)) throw new Error(`Run ${runId} is already active or pending activation.`);
   try {
     const store = await loadStore();
     const workspaceRoot = await prepareRunExportWorkspace(runId);
@@ -902,7 +902,7 @@ export function isRunActive(runId: string): boolean {
 }
 
 export function reserveRunSlot(runId: string): boolean {
-  if (activeRuns.size || pendingRuns.size) return false;
+  if (activeRuns.has(runId) || pendingRuns.has(runId)) return false;
   pendingRuns.add(runId);
   return true;
 }
