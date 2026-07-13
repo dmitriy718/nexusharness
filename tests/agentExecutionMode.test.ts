@@ -1,11 +1,14 @@
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import {
+  invokeEnabledMcpTool,
   invokeTool,
   localToolSchemas,
+  mcpToolSchemas,
   parsePredictedSandboxEffects,
   releaseRunSlot,
   reserveRunSlot,
+  resolveEnabledMcpTool,
   resolveAgentExecutionConfig,
   type TransactionalToolCoordinator
 } from "../server/agentLoop.js";
@@ -56,10 +59,37 @@ describe("agent execution mode", () => {
     expect(resolveAgentExecutionConfig({ NEXUSHARNESS_EXECUTION_MODE: "windows-sandbox", NEXUSHARNESS_EXECUTION_DIR: dataRoot })).toEqual({ mode: "windows-sandbox", dataRoot });
   });
 
-  it("removes arbitrary shell and MCP selection from transactional tools", () => {
+  it("keeps arbitrary host shell out of transactional local tools", () => {
     expect(toolNames("compatibility")).toEqual(["file_list", "file_read", "file_write", "file_delete", "shell_exec"]);
     expect(toolNames("transactional")).toEqual(["file_list", "file_read", "file_write", "file_delete"]);
     expect(toolNames("windows-sandbox")).toEqual(["file_list", "file_read", "file_write", "file_delete", "sandbox_exec"]);
+  });
+
+  it("exposes explicitly enabled MCP tools in every execution mode", async () => {
+    const servers = [{
+      id: "remote.one",
+      name: "Remote tools",
+      endpoint: "http://127.0.0.1:3001/mcp",
+      transport: "http" as const,
+      enabled: true,
+      status: "online" as const,
+      tools: [
+        { name: "lookup", description: "Look up a record.", enabled: true },
+        { name: "disabled", enabled: false }
+      ]
+    }];
+    const transactional = mcpToolSchemas(servers, "transactional");
+    expect(transactional.map((tool) => tool.function.name)).toEqual(["mcp_remote_one_0"]);
+    expect(transactional[0].function.description).toContain("effects external to the file transaction");
+    expect(mcpToolSchemas(servers, "windows-sandbox")).toHaveLength(1);
+    expect(mcpToolSchemas(servers, "compatibility")[0].function.description).not.toContain("effects external");
+
+    expect(resolveEnabledMcpTool(servers, "mcp_remote_one_0")).toMatchObject({ toolName: "lookup", server: { id: "remote.one" } });
+    expect(() => resolveEnabledMcpTool(servers, "mcp_remote_one_1")).toThrow(/not available or not enabled/);
+
+    const caller = vi.fn(async (_server, toolName: string, args: Record<string, unknown>) => ({ content: [{ type: "text" as const, text: JSON.stringify({ toolName, args }) }] }));
+    await expect(invokeEnabledMcpTool(servers, "mcp_remote_one_0", { id: 7 }, caller)).resolves.toEqual({ content: [{ type: "text", text: '{"toolName":"lookup","args":{"id":7}}' }] });
+    expect(caller).toHaveBeenCalledWith(servers[0], "lookup", { id: 7 });
   });
 
   it("admits concurrent run identities while rejecting duplicate activation", () => {
@@ -87,13 +117,12 @@ describe("agent execution mode", () => {
     expect(coordinator.delete).toHaveBeenCalledWith("old.ts", context);
   });
 
-  it("fails closed for non-transactional tools and failed proof", async () => {
+  it("fails closed for arbitrary host shell, unknown tools, and failed proof", async () => {
     const coordinator = fakeCoordinator();
     const signal = new AbortController().signal;
     const context = { runId: "run-1", subtask: "edit app" };
 
     await expect(invokeTool("shell_exec", { command: "npm test" }, signal, context, coordinator)).rejects.toThrow(/unavailable in transactional modes/);
-    await expect(invokeTool("mcp_remote_0", {}, signal, context, coordinator)).rejects.toThrow(/compensation semantics/);
     await expect(invokeTool("unknown", {}, signal, context, coordinator)).rejects.toThrow(/Unknown transactional tool/);
 
     coordinator.write = vi.fn(async () => ({

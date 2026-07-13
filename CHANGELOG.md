@@ -8,6 +8,7 @@ All notable NexusHarness changes are documented here. The format follows Keep a 
 
 - Added Glassbox Live, an accessible global run-observability modal backed by a bounded same-origin event stream for live provider-emitted reasoning, model output, tool calls/results, validation, critic decisions, phases, and failures. The UI explicitly distinguishes literal provider reasoning from inferred execution state.
 - New tasks now receive an owned clean export repository at the logged-in user's `~/.nexusharness/<task-id>` path. Run records and detail views expose the exact location, and model tools plus validation bind to that isolated export rather than the configured source workspace.
+- Transactional and Windows Sandbox runs now receive every MCP server tool the operator has explicitly enabled. MCP calls remain auditable and are described truthfully as external to the disposable file transaction and Sandbox boundary.
 
 ### Fixed
 
