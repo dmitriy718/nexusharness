@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process";
+import { execFile, spawn, type ChildProcess } from "node:child_process";
 import { createHash } from "node:crypto";
 import { lstat, mkdir, open, readFile, readdir, realpath, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -295,9 +295,11 @@ export async function runShell(
 ) {
   if (!command.trim()) throw new Error("Shell command cannot be empty.");
   if (command.length > 100_000) throw new Error("Shell command exceeds the 100,000 character safety limit.");
+  if (signal?.aborted) throw new Error("Command canceled before execution.");
   const cwd = await realpath(path.resolve(settings.workspaceRoot));
   const shell = settings.shellPath;
   await authorize(settings, "shell.exec", "execute", { command, cwd, shell }, context);
+  if (signal?.aborted) throw new Error("Command canceled before execution.");
   const shellName = path.basename(shell).toLowerCase();
   const args = shellName.includes("powershell") || shellName.includes("pwsh")
     ? ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", command]
@@ -307,13 +309,50 @@ export async function runShell(
         ? ["-lc", command]
         : ["-c", command];
   const result = await new Promise<{ stdout: string; stderr: string; code: number | null }>((resolve) => {
-    const child = execFile(shell, args, { cwd, timeout: 120000, maxBuffer: 1024 * 1024 * 10, signal }, (error, stdout, stderr) => {
-      const code = error
-        ? (typeof (error as any).code === "number" ? (error as any).code : 1)
-        : 0;
-      resolve({ stdout, stderr, code });
+    let settled = false;
+    let stopReason: "canceled" | "timed out" | "exceeded the output limit" | undefined;
+    let termination = Promise.resolve();
+    let stdout = "";
+    let stderr = "";
+    let outputBytes = 0;
+    const finish = (error: Error | null, exitCode: number | null) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      signal?.removeEventListener("abort", abort);
+      const code = error ? 1 : exitCode;
+      const stopMessage = stopReason ? `Command ${stopReason}; its process tree was terminated.` : "";
+      void termination.finally(() => resolve({ stdout, stderr: [stderr, stopMessage].filter(Boolean).join("\n"), code: stopReason ? 1 : code }));
+    };
+    const stop = (reason: "canceled" | "timed out" | "exceeded the output limit") => {
+      if (settled || stopReason) return;
+      stopReason = reason;
+      termination = terminateProcessTree(child);
+    };
+    const abort = () => stop("canceled");
+    const child: ChildProcess = spawn(shell, args, {
+      cwd,
+      windowsHide: true,
+      detached: process.platform !== "win32",
+      stdio: ["ignore", "pipe", "pipe"]
     });
-    child.on("error", (error) => resolve({ stdout: "", stderr: error.message, code: 1 }));
+    const collect = (stream: "stdout" | "stderr", chunk: Buffer) => {
+      outputBytes += chunk.byteLength;
+      if (outputBytes > 10 * 1024 * 1024) {
+        stop("exceeded the output limit");
+        return;
+      }
+      if (stream === "stdout") stdout += chunk.toString();
+      else stderr += chunk.toString();
+    };
+    child.stdout?.on("data", (chunk: Buffer) => collect("stdout", chunk));
+    child.stderr?.on("data", (chunk: Buffer) => collect("stderr", chunk));
+    const timeout = setTimeout(() => stop("timed out"), 120_000);
+    timeout.unref();
+    signal?.addEventListener("abort", abort, { once: true });
+    if (signal?.aborted) abort();
+    child.on("error", (error) => { stderr = error.message; finish(error, 1); });
+    child.on("close", (code) => finish(null, code));
   });
   await recordAudit({
     actor: "executor",
@@ -327,6 +366,21 @@ export async function runShell(
     throw new Error(`Command failed with exit code ${result.code}: ${command}\n${result.stderr || result.stdout}`);
   }
   return result;
+}
+
+export async function terminateProcessTree(child: Pick<ChildProcess, "pid" | "kill">): Promise<void> {
+  if (!child.pid) {
+    child.kill("SIGKILL");
+    return;
+  }
+  if (process.platform !== "win32") {
+    try { process.kill(-child.pid, "SIGKILL"); }
+    catch { child.kill("SIGKILL"); }
+    return;
+  }
+  await new Promise<void>((resolve) => {
+    execFile("taskkill.exe", ["/pid", String(child.pid), "/t", "/f"], { windowsHide: true, timeout: 10_000 }, () => resolve());
+  });
 }
 
 export async function workspaceTree(settings: Settings, relativePath = ".", depth = 2, budget = { remaining: 1000 }): Promise<any[]> {

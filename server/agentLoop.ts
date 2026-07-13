@@ -13,9 +13,12 @@ import type { BrokerAuditRecord } from "./execution/broker.js";
 import type { AgentRole, AuditEvent, ChatMessage, RunFailureDetails, RuntimeConfig, Settings, StoreShape, TaskRun } from "./types.js";
 import { getMemorySubsystem } from "./memory/subsystem.js";
 import { publishLiveRunEvent } from "./liveRunEvents.js";
+import { assertRunHostSafety } from "./execution/hostSafety.js";
+import { prepareRunExportWorkspace } from "./execution/runWorkspace.js";
 
 type RoleBindings = Record<AgentRole, { runtime: RuntimeConfig; model: string }>;
 const activeRuns = new Map<string, AbortController>();
+const pendingRuns = new Set<string>();
 const roleOutputTokenLimits: Record<AgentRole, number> = { planner: 2048, executor: 8192, critic: 2048 };
 type LiveRunCoordinator = RunExecutionCoordinator | WindowsRunExecutionCoordinator;
 const activeTransactions = new Map<string, LiveRunCoordinator>();
@@ -31,9 +34,15 @@ export interface TransactionalToolCoordinator {
 }
 
 export function resolveAgentExecutionConfig(environment: NodeJS.ProcessEnv = process.env): AgentExecutionConfig {
-  const rawMode = environment.NEXUSHARNESS_EXECUTION_MODE?.trim().toLowerCase() || "compatibility";
+  const rawMode = environment.NEXUSHARNESS_EXECUTION_MODE?.trim().toLowerCase();
+  if (!rawMode) throw new Error("Execution is disabled until NEXUSHARNESS_EXECUTION_MODE is explicitly set to transactional, windows-sandbox, or compatibility. NexusHarness never falls back to host execution.");
   if (rawMode !== "compatibility" && rawMode !== "transactional" && rawMode !== "windows-sandbox") throw new Error("NEXUSHARNESS_EXECUTION_MODE must be compatibility, transactional, or windows-sandbox.");
-  if (rawMode === "compatibility") return { mode: "compatibility" };
+  if (rawMode === "compatibility") {
+    if (environment.NEXUSHARNESS_ALLOW_HOST_EXECUTION?.trim().toLowerCase() !== "true") {
+      throw new Error("Compatibility mode exposes the operator's host. Set NEXUSHARNESS_ALLOW_HOST_EXECUTION=true only for deliberate legacy use with Approval mode enabled.");
+    }
+    return { mode: "compatibility" };
+  }
   const configuredRoot = environment.NEXUSHARNESS_EXECUTION_DIR?.trim();
   if (!configuredRoot) throw new Error("Transactional execution requires NEXUSHARNESS_EXECUTION_DIR outside the workspace repository.");
   if (!path.isAbsolute(configuredRoot)) throw new Error("NEXUSHARNESS_EXECUTION_DIR must be an absolute path.");
@@ -113,7 +122,7 @@ async function availableTools(mode: AgentExecutionMode) {
   return [...localToolSchemas(mode), ...mcpTools];
 }
 
-export async function invokeTool(name: string, args: Record<string, unknown>, signal: AbortSignal, context: { runId: string; subtask: string }, transaction?: TransactionalToolCoordinator) {
+export async function invokeTool(name: string, args: Record<string, unknown>, signal: AbortSignal, context: { runId: string; subtask: string; workspaceRoot?: string }, transaction?: TransactionalToolCoordinator) {
   if (transaction) {
     if (name === "file_list") return transaction.list(String(args.path ?? "."));
     if (name === "file_read") return transaction.read(String(args.path), { offset: Number(args.offset ?? 0), limit: Number(args.limit ?? 40_000) });
@@ -128,11 +137,13 @@ export async function invokeTool(name: string, args: Record<string, unknown>, si
     throw new Error(`Unknown transactional tool: ${name}`);
   }
   const store = await loadStore();
-  if (name === "file_list") return listFiles(store.settings, String(args.path ?? "."), context);
-  if (name === "file_read") return readWorkspaceFile(store.settings, String(args.path), { offset: Number(args.offset ?? 0), limit: Number(args.limit ?? 40_000) }, context);
-  if (name === "file_write") return writeWorkspaceFile(store.settings, String(args.path), String(args.content ?? ""), context);
-  if (name === "file_delete") return deleteWorkspacePath(store.settings, String(args.path), context);
-  if (name === "shell_exec") return runShell(store.settings, String(args.command), signal, context);
+  if (!context.workspaceRoot) throw new Error("A run-owned export workspace is required for local tool execution.");
+  const settings = { ...store.settings, workspaceRoot: context.workspaceRoot };
+  if (name === "file_list") return listFiles(settings, String(args.path ?? "."), context);
+  if (name === "file_read") return readWorkspaceFile(settings, String(args.path), { offset: Number(args.offset ?? 0), limit: Number(args.limit ?? 40_000) }, context);
+  if (name === "file_write") return writeWorkspaceFile(settings, String(args.path), String(args.content ?? ""), context);
+  if (name === "file_delete") return deleteWorkspacePath(settings, String(args.path), context);
+  if (name === "shell_exec") return runShell(settings, String(args.command), signal, context);
   if (name.startsWith("mcp_")) {
     const server = store.mcpServers.find((item) => name.startsWith(`mcp_${item.id}_`));
     if (!server) throw new Error(`No enabled MCP server matches tool ${name}.`);
@@ -371,13 +382,16 @@ function truncateContext(text: string, maxCharacters: number): string {
 
 async function runExecutorSubtask(runId: string, task: string, plan: string[], subtask: string, criticText: string, bindings: RoleBindings, signal: AbortSignal, mode: AgentExecutionMode, transaction?: LiveRunCoordinator, previousOutput = ""): Promise<string> {
   const store = await loadStore();
+  const run = store.runs.find((item) => item.id === runId);
+  if (!run) throw new Error(`Run not found while preparing executor workspace: ${runId}`);
+  const settings = runSettings(store.settings, run);
   const executionBoundary = mode === "transactional"
     ? "You are operating in one disposable portable transaction. File tools mutate only that cell. Arbitrary shell and MCP are unavailable; configured validation runs separately. Do not claim host, process, or network isolation."
     : mode === "windows-sandbox"
       ? "You are operating in one Windows transaction. File tools are deterministically brokered. sandbox_exec runs PowerShell behind the verified Windows Sandbox boundary and requires every expected file effect up front; missing or undeclared effects fail. MCP is unavailable."
-      : "Use tools to inspect and change the configured workspace for your assigned subtask only.";
+      : "Use tools to inspect and change only the run-owned export workspace for your assigned subtask.";
   const executorMessages: ChatMessage[] = [
-    { role: "system", content: `You are an Executor sub-agent. The configured workspace root is ${store.settings.workspaceRoot}. ${executionBoundary} All filesystem tool paths must be relative to that root. Never use absolute paths such as /Users, C:\\Users, /home, or Desktop paths unless the operator configured that directory as the workspace root. Report exact changed files and validation requested. If your runtime does not support native tool calls, request tools by returning only JSON like {"tool_calls":[{"name":"file_read","arguments":{"path":"package.json"}}]}.` },
+    { role: "system", content: `You are an Executor sub-agent. Your isolated export workspace is ${settings.workspaceRoot}. ${executionBoundary} It is a run-owned project separate from NexusHarness and any configured source workspace. Create all deliverables there. All filesystem tool paths must be relative to that root. Never use absolute paths. Report exact changed files and validation requested. If your runtime does not support native tool calls, request tools by returning only JSON like {"tool_calls":[{"name":"file_read","arguments":{"path":"package.json"}}]}.` },
     { role: "user", content: `Overall task: ${task}\nFull plan:\n${plan.map((item, index) => `${index + 1}. ${item}`).join("\n")}\nAssigned subtask:\n${subtask}\nPrevious critic feedback:\n${truncateContext(criticText, 30_000) || "None"}\nPrevious executor report:\n${truncateContext(previousOutput, 60_000) || "None. This is the first execution pass."}` }
   ];
   let executorOutput = "";
@@ -432,7 +446,7 @@ async function runExecutorSubtask(runId: string, task: string, plan: string[], s
         continue;
       }
       try {
-        const result = await invokeTool(call.name, call.arguments, signal, { runId, subtask }, transaction);
+        const result = await invokeTool(call.name, call.arguments, signal, { runId, subtask, workspaceRoot: settings.workspaceRoot }, transaction);
         const serializedResult = serializeToolResult(result);
         executorMessages.push({ role: "tool", toolName: call.name, toolCallId: call.id, content: serializedResult });
         toolEvidence.push(toolEvidenceLine(call.name, call.arguments, result, "succeeded"));
@@ -695,6 +709,17 @@ function resetRunAttempt(run: TaskRun): void {
   delete run.failure;
 }
 
+function runSettings(settings: Settings, run: TaskRun): Settings {
+  if (!run.workspaceRoot) throw new Error(`Run ${run.id} has no isolated export workspace.`);
+  const hasValidation = Boolean(settings.lintCommand.trim() || settings.testCommand.trim());
+  return {
+    ...settings,
+    workspaceRoot: run.workspaceRoot,
+    testCommand: hasValidation ? settings.testCommand : "git diff --check",
+    lintCommand: settings.lintCommand
+  };
+}
+
 async function prepareRunTransaction(run: TaskRun, store: StoreShape, config: AgentExecutionConfig): Promise<LiveRunCoordinator> {
   const existing = activeTransactions.get(run.id);
   if (existing) return existing;
@@ -703,11 +728,12 @@ async function prepareRunTransaction(run: TaskRun, store: StoreShape, config: Ag
   if (priorExecution?.state === "destroyed" && priorExecution.evidence.some((item) => item.name === "Committed restart recovery")) {
     throw new Error("This run committed before an earlier restart and cannot be automatically re-executed. Duplicate it only after reviewing the promoted effects.");
   }
-  const workspaceDataRoot = executionDataRoot(config.dataRoot, store.settings.workspaceRoot);
+  const settings = runSettings(store.settings, run);
+  const workspaceDataRoot = executionDataRoot(config.dataRoot, settings.workspaceRoot);
   const commonOptions = {
     runId: run.id,
     cellIdentity: `${run.id}:${nanoid()}`,
-    settings: store.settings,
+    settings,
     brokerAudit: {
       append: async (record: BrokerAuditRecord) => {
         await audit({
@@ -844,27 +870,45 @@ export async function abandonRunTransaction(runId: string, reason = "Run transac
 }
 
 export async function startTask(task: string): Promise<TaskRun> {
-  const store = await loadStore();
-  const run: TaskRun = {
-    id: nanoid(),
-    task: task.trim(),
-    status: "running",
-    phase: "plan",
-    iteration: 0,
-    maxIterations: store.settings.maxIterations,
-    log: [],
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString()
-  };
-  store.runs.unshift(run);
-  await saveStore(store);
-  publishLiveRunEvent({ runId: run.id, kind: "run_status", title: "Run started", content: run.task, phase: "plan", status: "active" });
-  void executeRun(run.id);
-  return run;
+  const runId = nanoid();
+  if (!reserveRunSlot(runId)) throw new Error("Another run is already active. NexusHarness permits one active run per service instance.");
+  try {
+    const store = await loadStore();
+    const workspaceRoot = await prepareRunExportWorkspace(runId);
+    const run: TaskRun = {
+      id: runId,
+      task: task.trim(),
+      workspaceRoot,
+      status: "running",
+      phase: "plan",
+      iteration: 0,
+      maxIterations: store.settings.maxIterations,
+      log: [],
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    };
+    store.runs.unshift(run);
+    await saveStore(store);
+    publishLiveRunEvent({ runId: run.id, kind: "run_status", title: "Run started", content: run.task, phase: "plan", status: "active" });
+    void executeRun(run.id);
+    return run;
+  } finally {
+    pendingRuns.delete(runId);
+  }
 }
 
 export function isRunActive(runId: string): boolean {
   return activeRuns.has(runId);
+}
+
+export function reserveRunSlot(runId: string): boolean {
+  if (activeRuns.size || pendingRuns.size) return false;
+  pendingRuns.add(runId);
+  return true;
+}
+
+export function releaseRunSlot(runId: string): void {
+  pendingRuns.delete(runId);
 }
 
 export async function cancelRun(runId: string): Promise<TaskRun | undefined> {
@@ -885,9 +929,10 @@ export async function cancelRun(runId: string): Promise<TaskRun | undefined> {
 }
 
 async function runValidation(store: StoreShape, run: TaskRun, signal: AbortSignal, transaction?: LiveRunCoordinator): Promise<string> {
+  const settings = runSettings(store.settings, run);
   const commands = [
-    { label: "Lint", command: store.settings.lintCommand.trim() },
-    { label: "Tests", command: store.settings.testCommand.trim() }
+    { label: "Lint", command: settings.lintCommand.trim() },
+    { label: "Tests", command: settings.testCommand.trim() }
   ].filter((item) => item.command);
   if (!commands.length) {
     const output = "No automated lint or test commands are configured.";
@@ -904,7 +949,7 @@ async function runValidation(store: StoreShape, run: TaskRun, signal: AbortSigna
     if (execution && (execution.receipt.status !== "succeeded" || !execution.result)) {
       throw new Error(`${item.label} failed transactional receipt verification.`);
     }
-    const result = execution?.result ?? await runShell(store.settings, item.command, signal, { runId: run.id, subtask: "Objective validation" });
+    const result = execution?.result ?? await runShell(settings, item.command, signal, { runId: run.id, subtask: "Objective validation" });
     output.push(`${item.label} (${item.command}):\n${result.stdout}${result.stderr}`.trim());
   }
   const details = output.join("\n\n");
@@ -917,6 +962,7 @@ export async function executeRun(runId: string) {
   if (activeRuns.has(runId)) return;
   const controller = new AbortController();
   activeRuns.set(runId, controller);
+  pendingRuns.delete(runId);
   const store = await loadStore();
   const run = store.runs.find((item) => item.id === runId);
   if (!run) {
@@ -929,6 +975,7 @@ export async function executeRun(runId: string) {
     const executionConfig: AgentExecutionConfig = transaction
       ? { mode: transaction instanceof WindowsRunExecutionCoordinator ? "windows-sandbox" : "transactional" }
       : resolveAgentExecutionConfig();
+    await assertRunHostSafety(runSettings(store.settings, run), executionConfig.mode);
     publishLiveRunEvent({ runId, kind: "run_status", title: "Execution mode selected", content: executionConfig.mode, phase: run.phase, status: "active" });
     if (!transaction && hasRecoverablePersistedCell(run) && executionConfig.mode === "compatibility") {
       throw new Error(`This run has a persisted ${run.execution!.provider} transaction. Select its transactional execution mode and restore the external execution directory before resuming.`);

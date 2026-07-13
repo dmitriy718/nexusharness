@@ -26,7 +26,7 @@ describe.sequential("JSON-fallback executor completion", () => {
       if (system.includes("Critic agent")) return ollama(response, '{"score":8,"issues":[],"recommendation":"accept"}');
       const toolResults = messages.filter((message) => message.role === "tool").length;
       if (toolResults === 0) return ollama(response, '{"name":"file_write","arguments":{"path":"status.txt","content":"BOUNDARY_READY\\n"}}');
-      return ollama(response, JSON.stringify({ name: "shell_exec", arguments: { command: readOnlyCommand(`round-${toolResults}`) } }));
+      return ollama(response, JSON.stringify({ name: "file_read", arguments: { path: "status.txt", offset: toolResults, limit: 100 } }));
     });
     await listen(modelServer);
     const modelPort = (modelServer.address() as { port: number }).port;
@@ -42,7 +42,14 @@ describe.sequential("JSON-fallback executor completion", () => {
     await writeFile(path.join(dataDirectory, "store.json"), JSON.stringify(store, null, 2), "utf8");
     apiProcess = spawn(process.execPath, [path.resolve("node_modules/tsx/dist/cli.mjs"), "server/index.ts"], {
       cwd: process.cwd(), windowsHide: true,
-      env: { ...process.env, NEXUSHARNESS_PORT: String(apiPort), NEXUSHARNESS_DATA_DIR: dataDirectory },
+      env: {
+        ...process.env,
+        NEXUSHARNESS_PORT: String(apiPort),
+        NEXUSHARNESS_DATA_DIR: dataDirectory,
+        NEXUSHARNESS_EXECUTION_MODE: "transactional",
+        NEXUSHARNESS_EXECUTION_DIR: path.join(dataDirectory, "transactions"),
+        NEXUSHARNESS_RUN_EXPORT_DIR: path.join(dataDirectory, "exports")
+      },
       stdio: ["ignore", "pipe", "pipe"]
     });
     apiProcess.stdout?.on("data", (chunk) => { apiOutput = `${apiOutput}${String(chunk)}`.slice(-20_000); });
@@ -67,7 +74,8 @@ describe.sequential("JSON-fallback executor completion", () => {
     expect(completed.run.executorOutput).toContain("NexusHarness reached the 16-turn action boundary");
     expect(completed.run.executorOutput).toContain("NexusHarness observed tool evidence");
     expect(completed.run.validationOutput).toContain("Tests (");
-    expect(await readFile(path.join(workspace, "status.txt"), "utf8")).toBe("BOUNDARY_READY\n");
+    expect(started.workspaceRoot).toBe(path.join(dataDirectory, "exports", started.id));
+    expect(await readFile(path.join(started.workspaceRoot, "status.txt"), "utf8")).toBe("BOUNDARY_READY\n");
   }, 30_000);
 });
 
@@ -81,10 +89,6 @@ function settingsFixture(workspaceRoot: string): Settings {
     lintCommand: "", mcpAutoDiscovery: false, mcpPortStart: 3000, mcpPortEnd: 3001, memoryTokenBudget: 100,
     agentModels: { planner: "runtime-fallback:fallback-model", executor: "runtime-fallback:fallback-model", critic: "runtime-fallback:fallback-model" }
   };
-}
-
-function readOnlyCommand(label: string): string {
-  return process.platform === "win32" ? `Write-Output '${label}'` : `printf '%s\\n' '${label}'`;
 }
 
 function ollama(response: ServerResponse, content: string): void {

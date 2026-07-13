@@ -170,6 +170,7 @@ export type Approval = {
 export type TaskRun = {
   id: string;
   task: string;
+  workspaceRoot?: string;
   status: RunStatus;
   phase: RunPhase;
   iteration: number;

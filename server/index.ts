@@ -9,7 +9,7 @@ import { loadStore, saveStore, audit } from "./store.js";
 import { memorySchema, mcpServerSchema, runtimeSchema, settingsSchema, taskSchema } from "./validation.js";
 import { listRuntimeModels, validateRuntimeConnection } from "./runtimeAdapters.js";
 import { discoverMcpServers, listMcpTools } from "./mcpClient.js";
-import { abandonRunTransaction, cancelRun, executeRun, isRunActive, startTask } from "./agentLoop.js";
+import { abandonRunTransaction, cancelRun, executeRun, isRunActive, releaseRunSlot, reserveRunSlot, startTask } from "./agentLoop.js";
 import { previewWorkspaceFile, searchWorkspace, workspaceEntries, workspaceTree } from "./localTools.js";
 import type { McpServerConfig, MemoryEntry } from "./types.js";
 import { buildInfo } from "./version.js";
@@ -20,6 +20,8 @@ import { resolveMemoryConfiguration } from "./memory/config.js";
 import { validateProviderConfiguration } from "./memory/providers.js";
 import { installationPaths, type ServiceState, userPaths } from "./paths.js";
 import { liveRunEventSnapshot, subscribeToLiveRunEvents, type LiveRunEvent } from "./liveRunEvents.js";
+import { assertWorkspaceSeparatedFromInstallation } from "./execution/hostSafety.js";
+import { prepareRunExportWorkspace } from "./execution/runWorkspace.js";
 
 const port = Number(process.env.NEXUSHARNESS_PORT ?? 8787);
 if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error("NEXUSHARNESS_PORT must be an integer from 1 to 65535.");
@@ -170,6 +172,8 @@ app.put("/api/settings", asyncRoute(async (req, res) => {
   try { workspaceStat = await stat(parsed.workspaceRoot); }
   catch { return res.status(400).json({ error: "workspaceRoot must be an existing directory." }); }
   if (!workspaceStat.isDirectory()) return res.status(400).json({ error: "workspaceRoot must be an existing directory." });
+  try { await assertWorkspaceSeparatedFromInstallation(parsed.workspaceRoot); }
+  catch (error: any) { return res.status(400).json({ error: error.message ?? String(error) }); }
   const store = await loadStore();
   const runtimeIds = new Set(store.runtimes.map((runtime) => runtime.id));
   for (const [role, modelId] of Object.entries(parsed.agentModels)) {
@@ -419,12 +423,18 @@ app.post("/api/tasks/:id/resume", asyncRoute(async (req, res) => {
   if (run.status !== "waiting_approval" && run.status !== "failed" && run.status !== "canceled") {
     return res.status(409).json({ error: `Run cannot be resumed from status ${run.status}.` });
   }
-  run.status = "running";
-  run.error = undefined;
-  run.updatedAt = new Date().toISOString();
-  await saveStore(store);
-  void executeRun(run.id);
-  res.json(run);
+  if (!reserveRunSlot(id)) return res.status(409).json({ error: "Another run is already active. NexusHarness permits one active run per service instance." });
+  try {
+    run.workspaceRoot ??= await prepareRunExportWorkspace(run.id);
+    run.status = "running";
+    run.error = undefined;
+    run.updatedAt = new Date().toISOString();
+    await saveStore(store);
+    void executeRun(run.id);
+    res.json(run);
+  } finally {
+    releaseRunSlot(id);
+  }
 }));
 
 app.post("/api/tasks/:id/cancel", asyncRoute(async (req, res) => {
