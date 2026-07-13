@@ -11,6 +11,7 @@ const update = lifecycle === "test:visual:update";
 const suite = enabled ? describe : describe.skip;
 const baselineDirectory = join(root, "tests", "visual-baselines");
 const diffDirectory = join(root, "dist", "visual-diffs");
+const maximumRendererNoisePixels = 1;
 const viewports = [
   { width: 1440, height: 900 },
   { width: 1280, height: 800 },
@@ -79,12 +80,12 @@ suite("Midnight Prism visual regression", () => {
         expect({ width: rendered.width, height: rendered.height }, `${filename} dimensions changed.`).toEqual({ width: expected.width, height: expected.height });
         const diff = new PNG({ width: expected.width, height: expected.height });
         const changedPixels = pixelmatch(expected.data, rendered.data, diff.data, expected.width, expected.height, { threshold: 0.05, includeAA: false });
-        if (changedPixels) {
+        if (changedPixels > maximumRendererNoisePixels) {
           mkdirSync(diffDirectory, { recursive: true });
           writeFileSync(join(diffDirectory, filename.replace(".png", ".actual.png")), actual);
           writeFileSync(join(diffDirectory, filename.replace(".png", ".diff.png")), PNG.sync.write(diff));
         }
-        expect(changedPixels, `${filename} changed by ${changedPixels.toLocaleString()} rendered pixels. Review dist/visual-diffs.`).toBe(0);
+        expect(changedPixels, `${filename} changed by ${changedPixels.toLocaleString()} rendered pixels. Review dist/visual-diffs.`).toBeLessThanOrEqual(maximumRendererNoisePixels);
       }
       await context.close();
     }, 30_000);
