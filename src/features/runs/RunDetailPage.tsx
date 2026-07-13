@@ -17,7 +17,7 @@ import {
   X
 } from "lucide-react";
 import { api, errorMessage } from "../../api/client";
-import type { RunDetailRecord, RunPhase, TaskRun } from "../../api/types";
+import type { LiveRunEvent, RunDetailRecord, RunPhase, TaskRun } from "../../api/types";
 import { useHarness } from "../../app/StoreProvider";
 import { EmptyState, InlineAlert, RunStatusBadge, formatDate, formatDuration, handleTabListKeyDown, shortId } from "../../components/ui";
 import { displayRunValue, phaseState, runActions, runFailurePresentation, runSummary } from "./runModel";
@@ -41,6 +41,7 @@ export function RunDetailPage() {
   const [busy, setBusy] = useState("");
   const [actionError, setActionError] = useState("");
   const [detail, setDetail] = useState<RunDetailRecord | null>(null);
+  const [livePhase, setLivePhase] = useState<RunPhase | null>(null);
   const [detailLoading, setDetailLoading] = useState(true);
   const [detailError, setDetailError] = useState("");
   const [inspector, setInspector] = useState<"overview" | "outputs" | "activity">("overview");
@@ -63,7 +64,35 @@ export function RunDetailPage() {
     return () => controller.abort();
   }, [loadDetail]);
 
-  const run = detail?.run ?? compactRun;
+  const persistedRun = synchronizeRunProgress(detail?.run, compactRun);
+  const streamActive = persistedRun?.status === "running" || persistedRun?.status === "waiting_approval";
+
+  useEffect(() => {
+    setLivePhase(null);
+    if (!runId || !streamActive || typeof EventSource === "undefined") return;
+    const source = new EventSource(`/api/runs/${encodeURIComponent(runId)}/events`);
+    let detailTimer: number | undefined;
+    const refreshDetailSoon = () => {
+      window.clearTimeout(detailTimer);
+      detailTimer = window.setTimeout(() => void loadDetail().catch(() => undefined), 150);
+    };
+    source.onmessage = (message) => {
+      try {
+        const event = JSON.parse(message.data) as LiveRunEvent;
+        if (event.runId !== runId) return;
+        if (event.phase) setLivePhase((current) => current === event.phase ? current : event.phase ?? current);
+        if (["phase", "run_status", "validation", "critic", "error"].includes(event.kind)) refreshDetailSoon();
+      } catch {
+        // A malformed observer event cannot block persisted-state polling.
+      }
+    };
+    return () => {
+      window.clearTimeout(detailTimer);
+      source.close();
+    };
+  }, [loadDetail, runId, streamActive]);
+
+  const run = persistedRun && livePhase && streamActive ? { ...persistedRun, phase: livePhase } : persistedRun;
 
   const events = useMemo(() => detail && detail.run.id === runId ? detail.audit.slice(0, 30) : store?.audit.filter((event) => {
     const details = JSON.stringify(event.details ?? "");
@@ -193,10 +222,20 @@ function PhaseRail({ run }: { run: TaskRun }) {
       {phases.map((phase, index) => {
         const state = phaseState(run, phase.id);
         const Icon = phase.icon;
-        return <li className={"phase-" + state} key={phase.id}><span className="phase-node">{state === "complete" ? <Check /> : state === "pending" ? <Circle /> : <Icon />}</span><div><strong>{phase.label}</strong><small>{state}</small></div>{index < phases.length - 1 && <i />}</li>;
+        return <li className={"phase-" + state} data-state={state} aria-current={state === "active" || state === "waiting" ? "step" : undefined} key={phase.id}><span className="phase-node">{state === "complete" ? <Check /> : state === "pending" ? <Circle /> : <Icon />}</span><div><strong>{phase.label}</strong><small>{state}</small></div>{index < phases.length - 1 && <i />}</li>;
       })}
     </ol>
   );
+}
+
+export function synchronizeRunProgress(detailRun?: TaskRun, compactRun?: TaskRun): TaskRun | undefined {
+  if (!detailRun) return compactRun;
+  if (!compactRun) return detailRun;
+  const detailUpdatedAt = Date.parse(detailRun.updatedAt);
+  const compactUpdatedAt = Date.parse(compactRun.updatedAt);
+  return detailUpdatedAt > compactUpdatedAt
+    ? { ...compactRun, ...detailRun }
+    : { ...detailRun, ...compactRun };
 }
 
 function TimelineItem({ icon, actor, title, time, tone = "default", children }: { icon: React.ReactNode; actor: string; title: string; time: string; tone?: string; children: React.ReactNode }) {
