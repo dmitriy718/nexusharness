@@ -76,6 +76,7 @@ export function mergeStore(raw: Partial<StoreShape>): StoreShape {
   // A process cannot still own a run loaded from disk. Mark stale work
   // explicitly so operators can resume it instead of seeing "running" forever.
   for (const run of merged.runs) {
+    run.log ??= [];
     if (run.status === "running") {
       run.status = "failed";
       run.error = "Run was interrupted by a previous NexusHarness shutdown. Resume it to continue from its saved checkpoint.";

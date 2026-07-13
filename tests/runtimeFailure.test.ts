@@ -16,6 +16,7 @@ afterEach(async () => {
 describe("runtime request failure classification", () => {
   it("keeps an active streamed Ollama generation alive beyond the inactivity window", async () => {
     let receivedBody: any;
+    const streamEvents: Array<{ kind: string; content?: string }> = [];
     const endpoint = await runtimeServer((request, response) => {
       let body = "";
       request.setEncoding("utf8");
@@ -23,7 +24,7 @@ describe("runtime request failure classification", () => {
       request.on("end", () => {
         receivedBody = JSON.parse(body);
         response.writeHead(200, { "content-type": "application/x-ndjson" });
-        response.write(`${JSON.stringify({ message: { content: "He" }, done: false })}\n`);
+        response.write(`${JSON.stringify({ message: { thinking: "Inspect first. ", content: "He" }, done: false })}\n`);
         setTimeout(() => response.write(`${JSON.stringify({ message: { content: "ll" }, done: false })}\n`), 75);
         setTimeout(() => response.write(`${JSON.stringify({ message: { content: "o" }, done: false })}\n`), 150);
         setTimeout(() => response.end(`${JSON.stringify({ message: { content: "", tool_calls: [{ function: { name: "file_read", arguments: { path: "README.md" } } }] }, done: true, eval_count: 3 })}\n`), 225);
@@ -32,7 +33,8 @@ describe("runtime request failure classification", () => {
     const result = await chatWithRuntime(runtimeConfig(endpoint, 200), {
       model: "model",
       messages: [{ role: "tool", toolName: "file_list", content: "[]" }],
-      maxOutputTokens: 8192
+      maxOutputTokens: 8192,
+      onStreamEvent: (event) => streamEvents.push(event)
     });
     expect(result).toMatchObject({ content: "Hello", toolCalls: [{ name: "file_read", arguments: { path: "README.md" } }] });
     expect(receivedBody).toMatchObject({
@@ -40,6 +42,11 @@ describe("runtime request failure classification", () => {
       messages: [{ role: "tool", tool_name: "file_list", content: "[]" }],
       options: { num_predict: 8192 }
     });
+    expect(streamEvents).toEqual(expect.arrayContaining([
+      { kind: "thinking_delta", content: "Inspect first. " },
+      { kind: "content_delta", content: "He" },
+      expect.objectContaining({ kind: "tool_calls" })
+    ]));
   });
 
   it("distinguishes a model deadline from endpoint unavailability", async () => {

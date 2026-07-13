@@ -143,6 +143,19 @@ describe("text tool-call fallback", () => {
     ]);
   });
 
+  it("executes direct tool-call arrays emitted by JSON-fallback models", () => {
+    expect(parseTextToolCalls('```json\n[{"name":"file_read","arguments":{"path":"index.html"}},{"name":"file_write","arguments":{"path":"status.txt","content":"ready"}}]\n```')).toEqual([
+      { id: "text_call_0", name: "file_read", arguments: { path: "index.html" } },
+      { id: "text_call_1", name: "file_write", arguments: { path: "status.txt", content: "ready" } }
+    ]);
+  });
+
+  it("executes a single direct tool-call object emitted by JSON-fallback models", () => {
+    expect(parseTextToolCalls('```json\n{"name":"file_list","arguments":{"path":"."}}\n```')).toEqual([
+      { id: "text_call_0", name: "file_list", arguments: { path: "." } }
+    ]);
+  });
+
   it("ignores ordinary JSON without tool calls", () => {
     expect(parseTextToolCalls(JSON.stringify(["plan item"]))).toEqual([]);
   });

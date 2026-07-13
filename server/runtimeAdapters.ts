@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { access } from "node:fs/promises";
-import type { ChatMessage, ModelChatRequest, ModelChatResponse, ModelInfo, RuntimeConfig } from "./types.js";
+import type { ChatMessage, ModelChatRequest, ModelChatResponse, ModelInfo, ModelStreamEvent, RuntimeConfig } from "./types.js";
 
 const MODEL_CACHE_TTL_MS = 60_000;
 const MAX_RUNTIME_RESPONSE_BYTES = 10 * 1024 * 1024;
@@ -215,12 +215,19 @@ export function parseTextToolCalls(content: string): ModelChatResponse["toolCall
   for (const candidate of candidates) {
     try {
       const parsed = parseJsonWithRepair(candidate) as any;
-      const rawCalls = Array.isArray(parsed?.tool_calls)
-        ? parsed.tool_calls
-        : Array.isArray(parsed?.toolCalls)
-          ? parsed.toolCalls
-          : [];
+      const directCall = parsed && typeof parsed === "object" && !Array.isArray(parsed)
+        && (typeof parsed.name === "string" || typeof parsed.function?.name === "string");
+      const rawCalls = Array.isArray(parsed)
+        ? parsed
+        : Array.isArray(parsed?.tool_calls)
+          ? parsed.tool_calls
+          : Array.isArray(parsed?.toolCalls)
+            ? parsed.toolCalls
+            : directCall
+              ? [parsed]
+              : [];
       const calls = rawCalls
+        .filter((call: any) => call && typeof call === "object" && !Array.isArray(call))
         .map((call: any, index: number) => ({
           id: call.id ?? `text_call_${index}`,
           name: call.name ?? call.function?.name,
@@ -235,7 +242,15 @@ export function parseTextToolCalls(content: string): ModelChatResponse["toolCall
   return [];
 }
 
-async function fetchOllamaChatStream(url: string, init: RequestInit, inactivityTimeoutMs: number): Promise<any[]> {
+function emitStreamEvent(callback: ModelChatRequest["onStreamEvent"], event: ModelStreamEvent): void {
+  try {
+    callback?.(event);
+  } catch {
+    // Observability must never interrupt the model request it is observing.
+  }
+}
+
+async function fetchOllamaChatStream(url: string, init: RequestInit, inactivityTimeoutMs: number, onStreamEvent?: ModelChatRequest["onStreamEvent"]): Promise<any[]> {
   const inactivityController = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
   const resetInactivityTimer = () => {
@@ -266,6 +281,19 @@ async function fetchOllamaChatStream(url: string, init: RequestInit, inactivityT
       }
       if (event?.error) throw new RuntimeRequestError("runtime_http_error", `Runtime reported an error while streaming from ${url}.`, url, inactivityTimeoutMs, false);
       events.push(event);
+      const thinking = event?.message?.thinking;
+      const content = event?.message?.content;
+      if (typeof thinking === "string" && thinking) emitStreamEvent(onStreamEvent, { kind: "thinking_delta", content: thinking });
+      if (typeof content === "string" && content) emitStreamEvent(onStreamEvent, { kind: "content_delta", content });
+      const rawToolCalls = event?.message?.tool_calls;
+      if (Array.isArray(rawToolCalls) && rawToolCalls.length) {
+        const toolCalls = rawToolCalls.map((call: any, index: number) => ({
+          id: call.id ?? `call_${index}`,
+          name: call.function?.name ?? call.name,
+          arguments: parseToolArguments(call.function?.arguments ?? call.arguments)
+        })).filter((call: any) => typeof call.name === "string" && call.name.length > 0);
+        if (toolCalls.length) emitStreamEvent(onStreamEvent, { kind: "tool_calls", toolCalls });
+      }
     };
     try {
       while (true) {
@@ -311,7 +339,7 @@ async function fetchOllamaChatStream(url: string, init: RequestInit, inactivityT
   }
 }
 
-async function fetchOllamaChatStreamWithLoopbackFallback(url: string, init: RequestInit, inactivityTimeoutMs: number): Promise<any[]> {
+async function fetchOllamaChatStreamWithLoopbackFallback(url: string, init: RequestInit, inactivityTimeoutMs: number, onStreamEvent?: ModelChatRequest["onStreamEvent"]): Promise<any[]> {
   const attempts = [url];
   const parsed = new URL(url);
   if (["localhost", "::1", "[::1]"].includes(parsed.hostname)) {
@@ -321,7 +349,7 @@ async function fetchOllamaChatStreamWithLoopbackFallback(url: string, init: Requ
   let lastError: unknown;
   for (const attempt of Array.from(new Set(attempts))) {
     try {
-      return await fetchOllamaChatStream(attempt, init, inactivityTimeoutMs);
+      return await fetchOllamaChatStream(attempt, init, inactivityTimeoutMs, onStreamEvent);
     } catch (error) {
       if (init.signal?.aborted) throw error;
       if (error instanceof RuntimeRequestError && error.code !== "runtime_unavailable") throw error;
@@ -348,7 +376,7 @@ export async function chatWithRuntime(runtime: RuntimeConfig, request: ModelChat
           ...(request.maxOutputTokens ? { num_predict: request.maxOutputTokens } : {})
         }
       })
-    }, runtime.timeoutMs);
+    }, runtime.timeoutMs, request.onStreamEvent);
     const content = events.map((event) => event.message?.content ?? "").join("");
     const thinking = events.map((event) => event.message?.thinking ?? "").join("");
     const streamedToolCalls = events.flatMap((event) => event.message?.tool_calls ?? []);
@@ -381,6 +409,8 @@ export async function chatWithRuntime(runtime: RuntimeConfig, request: ModelChat
       arguments: parseToolArguments(call.function?.arguments)
     }));
     const content = message.content ?? "";
+    if (content) emitStreamEvent(request.onStreamEvent, { kind: "content_delta", content });
+    if (toolCalls.length) emitStreamEvent(request.onStreamEvent, { kind: "tool_calls", toolCalls });
     return { content, toolCalls: toolCalls.length ? toolCalls : parseTextToolCalls(content), raw: data };
   }
   return chatWithLlamaCli(runtime, request);
@@ -394,7 +424,10 @@ async function chatWithLlamaCli(runtime: RuntimeConfig, request: ModelChatReques
   let stdout = "";
   let stderr = "";
   const appendBounded = (current: string, chunk: unknown) => `${current}${String(chunk)}`.slice(-10 * 1024 * 1024);
-  child.stdout.on("data", (chunk) => { stdout = appendBounded(stdout, chunk); });
+  child.stdout.on("data", (chunk) => {
+    stdout = appendBounded(stdout, chunk);
+    emitStreamEvent(request.onStreamEvent, { kind: "content_delta", content: String(chunk) });
+  });
   child.stderr.on("data", (chunk) => { stderr = appendBounded(stderr, chunk); });
   const exitCode = await new Promise<number | null>((resolve) => {
     let settled = false;

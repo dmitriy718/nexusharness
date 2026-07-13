@@ -19,11 +19,13 @@ import {
   ShieldCheck,
   Sparkles,
   RotateCcw,
+  ScanEye,
   X
 } from "lucide-react";
 import { useHarness } from "./StoreProvider";
 import { failureDetails, freshnessLabel } from "../features/feedback/feedbackModel";
 import { useFocusTrap } from "../components/useFocusTrap";
+import { GlassboxLiveModal } from "../features/runs/GlassboxLiveModal";
 
 const destinations = [
   { to: "/dashboard", label: "Overview", icon: Gauge },
@@ -42,6 +44,7 @@ export function AppShell() {
   const { store, health, error, failure, clearError, notices, dismissNotice, refreshing, refresh, connectionState, lastSyncedAt } = useHarness();
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [glassboxOpen, setGlassboxOpen] = useState(false);
   const location = useLocation();
   const navRef = useRef<HTMLElement>(null);
   const openNavigationRef = useRef<HTMLButtonElement>(null);
@@ -70,7 +73,7 @@ export function AppShell() {
       <header className="mobile-bar">
         <button ref={openNavigationRef} className="icon-button" aria-label="Open navigation" aria-expanded={mobileOpen} aria-controls="primary-navigation" onClick={() => setMobileOpen(true)}><Menu /></button>
         <Brand compact />
-        {pending > 0 && <NavLink to="/approvals" className="attention-count" aria-label={pending + " pending approvals"}>{pending}</NavLink>}
+        <div className="mobile-actions"><button className="icon-button" aria-label="Open Glassbox Live" onClick={() => setGlassboxOpen(true)}><ScanEye /></button>{pending > 0 && <NavLink to="/approvals" className="attention-count" aria-label={pending + " pending approvals"}>{pending}</NavLink>}</div>
       </header>
 
       {mobileOpen && <button className="nav-scrim" aria-label="Close navigation" onClick={closeMobile} />}
@@ -112,6 +115,7 @@ export function AppShell() {
           </div>
           <div className="context-actions">
             {activeRun && <NavLink className="live-run-chip" to={"/runs/" + activeRun.id}><span />{activeRun.phase} · iteration {activeRun.iteration}</NavLink>}
+            <button className="glassbox-button" onClick={() => setGlassboxOpen(true)}><ScanEye />Glassbox Live</button>
             <span className={`live-state state-${connectionState}`} role="status"><span />{refreshing ? "Syncing…" : connectionState === "online" ? freshnessLabel(lastSyncedAt) : connectionLabel(connectionState)}</span>
             <button className="command-button" aria-label="Open command palette (coming in v2)" title="Command palette"><Command /><kbd>⌘K</kbd></button>
             <NavLink to="/approvals" className={"approval-button" + (pending ? " has-attention" : "")}>
@@ -148,6 +152,7 @@ export function AppShell() {
       <div className="sr-only" role="status" aria-live="polite" aria-atomic="true">
         {activeRun ? `Run ${activeRun.id} is ${activeRun.status}, phase ${activeRun.phase}, iteration ${activeRun.iteration}.` : "No active run."} {pending ? `${pending} approval${pending === 1 ? "" : "s"} pending.` : "No approvals pending."}
       </div>
+      <GlassboxLiveModal open={glassboxOpen} onClose={() => setGlassboxOpen(false)} runs={store?.runs ?? []} preferredRunId={activeRun?.id} />
     </div>
   );
 }

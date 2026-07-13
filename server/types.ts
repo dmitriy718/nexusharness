@@ -132,6 +132,10 @@ export interface ToolCallRequest {
   arguments: Record<string, unknown>;
 }
 
+export type ModelStreamEvent =
+  | { kind: "content_delta" | "thinking_delta"; content: string }
+  | { kind: "tool_calls"; toolCalls: ToolCallRequest[] };
+
 export interface ModelChatRequest {
   model: string;
   messages: ChatMessage[];
@@ -139,6 +143,7 @@ export interface ModelChatRequest {
   temperature?: number;
   maxOutputTokens?: number;
   signal?: AbortSignal;
+  onStreamEvent?: (event: ModelStreamEvent) => void;
 }
 
 export interface ModelChatResponse {

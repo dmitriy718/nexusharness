@@ -4,8 +4,13 @@ All notable NexusHarness changes are documented here. The format follows Keep a 
 
 ## [Unreleased]
 
+### Added
+
+- Added Glassbox Live, an accessible global run-observability modal backed by a bounded same-origin event stream for live provider-emitted reasoning, model output, tool calls/results, validation, critic decisions, phases, and failures. The UI explicitly distinguishes literal provider reasoning from inferred execution state.
+
 ### Fixed
 
+- JSON-fallback executors now recognize single direct calls and direct call arrays as well as wrapped `tool_calls` objects, critic input includes bounded harness-observed tool evidence, and already-observed success/failure cycles since the last mutation are safely suppressed. Reaching the 16-turn safety boundary now forwards evidence to objective validation and critic review instead of automatically failing otherwise-correct work.
 - Ollama agent turns now consume the official streaming response, treat the configured timeout as an inactivity window that resets while tokens arrive, retain streamed tool calls, and cap role-specific output. Long active generations are no longer killed at a fixed wall-clock minute or mislabeled as endpoint failures.
 
 ## [2.1.0-beta.0] - 2026-07-13
