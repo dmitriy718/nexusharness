@@ -10,7 +10,7 @@ import { WindowsRunExecutionCoordinator, type PredictedSandboxEffect } from "./e
 import { WindowsSandboxLauncher } from "./execution/windowsSandboxProvider.js";
 import type { CellSpec, EffectSet, ExecutionCell } from "./execution/contracts.js";
 import type { BrokerAuditRecord } from "./execution/broker.js";
-import type { AgentRole, AuditEvent, ChatMessage, RunFailureDetails, RuntimeConfig, Settings, StoreShape, TaskRun } from "./types.js";
+import type { AgentRole, AuditEvent, ChatMessage, McpServerConfig, RunFailureDetails, RuntimeConfig, Settings, StoreShape, TaskRun } from "./types.js";
 import { getMemorySubsystem } from "./memory/subsystem.js";
 import { publishLiveRunEvent } from "./liveRunEvents.js";
 import { assertRunHostSafety } from "./execution/hostSafety.js";
@@ -106,19 +106,45 @@ export function localToolSchemas(mode: AgentExecutionMode = "compatibility") {
   return [...fileTools, { type: "function", function: { name: "shell_exec", description: "Run a shell command in the configured workspace root. Requires approval when enabled.", parameters: { type: "object", required: ["command"], properties: { command: { type: "string" } } } } }];
 }
 
-async function availableTools(mode: AgentExecutionMode) {
-  if (mode !== "compatibility") return localToolSchemas(mode);
-  const store = await loadStore();
-  const mcpTools = store.mcpServers
+function mcpToolFunctionName(serverId: string, index: number): string {
+  return `mcp_${serverId}_${index}`.replace(/[^a-zA-Z0-9_-]/g, "_");
+}
+
+export function mcpToolSchemas(servers: McpServerConfig[], mode: AgentExecutionMode) {
+  return servers
     .filter((server) => server.enabled)
     .flatMap((server) => server.tools.map((tool, index) => ({ tool, index })).filter(({ tool }) => tool.enabled).map(({ tool, index }) => ({
       type: "function",
       function: {
-        name: `mcp_${server.id}_${index}`.replace(/[^a-zA-Z0-9_-]/g, "_"),
-        description: `[MCP ${server.name}] ${tool.description ?? tool.name}`,
+        name: mcpToolFunctionName(server.id, index),
+        description: `[MCP ${server.name}${mode === "compatibility" ? "" : "; effects external to the file transaction"}] ${tool.description ?? tool.name}`,
         parameters: tool.inputSchema ?? { type: "object" }
       }
     })));
+}
+
+export function resolveEnabledMcpTool(servers: McpServerConfig[], name: string): { server: McpServerConfig; toolName: string } {
+  for (const server of servers) {
+    if (!server.enabled) continue;
+    const toolIndex = server.tools.findIndex((tool, index) => tool.enabled && mcpToolFunctionName(server.id, index) === name);
+    if (toolIndex >= 0) return { server, toolName: server.tools[toolIndex].name };
+  }
+  throw new Error(`MCP tool ${name} is not available or not enabled.`);
+}
+
+export async function invokeEnabledMcpTool(
+  servers: McpServerConfig[],
+  name: string,
+  args: Record<string, unknown>,
+  caller: typeof callMcpTool = callMcpTool
+) {
+  const { server, toolName } = resolveEnabledMcpTool(servers, name);
+  return caller(server, toolName, args);
+}
+
+async function availableTools(mode: AgentExecutionMode) {
+  const store = await loadStore();
+  const mcpTools = mcpToolSchemas(store.mcpServers, mode);
   return [...localToolSchemas(mode), ...mcpTools];
 }
 
@@ -133,7 +159,11 @@ export async function invokeTool(name: string, args: Record<string, unknown>, si
       const execution = await transaction.shell(String(args.command ?? ""), parsePredictedSandboxEffects(args.expectedEffects), context, signal);
       return { ...transactionResult(execution), result: execution.result, diagnostic: execution.diagnostic };
     }
-    if (name === "shell_exec" || name.startsWith("mcp_")) throw new Error(`${name} is unavailable in transactional modes; portable execution has no hostile-process boundary and remote effects require explicit compensation semantics.`);
+    if (name === "shell_exec") throw new Error(`${name} is unavailable in transactional modes; portable execution has no hostile-process boundary.`);
+    if (name.startsWith("mcp_")) {
+      const store = await loadStore();
+      return invokeEnabledMcpTool(store.mcpServers, name, args);
+    }
     throw new Error(`Unknown transactional tool: ${name}`);
   }
   const store = await loadStore();
@@ -144,16 +174,7 @@ export async function invokeTool(name: string, args: Record<string, unknown>, si
   if (name === "file_write") return writeWorkspaceFile(settings, String(args.path), String(args.content ?? ""), context);
   if (name === "file_delete") return deleteWorkspacePath(settings, String(args.path), context);
   if (name === "shell_exec") return runShell(settings, String(args.command), signal, context);
-  if (name.startsWith("mcp_")) {
-    const server = store.mcpServers.find((item) => name.startsWith(`mcp_${item.id}_`));
-    if (!server) throw new Error(`No enabled MCP server matches tool ${name}.`);
-    const toolIndex = Number(name.slice(`mcp_${server.id}_`.length));
-    const toolName = server.tools[toolIndex]?.name;
-    if (!Number.isInteger(toolIndex) || !toolName || !server.tools[toolIndex]?.enabled) {
-      throw new Error(`MCP tool ${name} is not available or not enabled.`);
-    }
-    return callMcpTool(server, toolName, args);
-  }
+  if (name.startsWith("mcp_")) return invokeEnabledMcpTool(store.mcpServers, name, args);
   throw new Error(`Unknown tool: ${name}`);
 }
 
@@ -386,9 +407,9 @@ async function runExecutorSubtask(runId: string, task: string, plan: string[], s
   if (!run) throw new Error(`Run not found while preparing executor workspace: ${runId}`);
   const settings = runSettings(store.settings, run);
   const executionBoundary = mode === "transactional"
-    ? "You are operating in one disposable portable transaction. File tools mutate only that cell. Arbitrary shell and MCP are unavailable; configured validation runs separately. Do not claim host, process, or network isolation."
+    ? "You are operating in one disposable portable transaction. File tools mutate only that cell. Arbitrary shell is unavailable and configured validation runs separately. Enabled MCP tools are available, but their remote effects are outside the disposable file transaction. Never use MCP to access NexusHarness source or bypass the run-owned export workspace. Do not claim host, process, network, or MCP-effect isolation."
     : mode === "windows-sandbox"
-      ? "You are operating in one Windows transaction. File tools are deterministically brokered. sandbox_exec runs PowerShell behind the verified Windows Sandbox boundary and requires every expected file effect up front; missing or undeclared effects fail. MCP is unavailable."
+      ? "You are operating in one Windows transaction. File tools are deterministically brokered. sandbox_exec runs PowerShell behind the verified Windows Sandbox boundary and requires every expected file effect up front; missing or undeclared effects fail. Enabled MCP tools are available, but their effects are external to the file transaction and Sandbox boundary. Never use MCP to access NexusHarness source or bypass the run-owned export workspace."
       : "Use tools to inspect and change only the run-owned export workspace for your assigned subtask.";
   const executorMessages: ChatMessage[] = [
     { role: "system", content: `You are an Executor sub-agent. Your isolated export workspace is ${settings.workspaceRoot}. ${executionBoundary} It is a run-owned project separate from NexusHarness and any configured source workspace. Create all deliverables there. All filesystem tool paths must be relative to that root. Never use absolute paths. Report exact changed files and validation requested. If your runtime does not support native tool calls, request tools by returning only JSON like {"tool_calls":[{"name":"file_read","arguments":{"path":"package.json"}}]}.` },
@@ -469,7 +490,7 @@ async function runExecutorSubtask(runId: string, task: string, plan: string[], s
         toolEvidence.push(toolEvidenceLine(call.name, call.arguments, message, "failed"));
         observedToolResultsSinceMutation.set(toolKey, { status: "failed", result: message.slice(0, 4_000) });
         publishLiveRunEvent({ runId, kind: "tool_result", title: `${call.name} failed`, content: message, role: "executor", phase: "execute", subtask, status: "error" });
-        await audit({ actor: "executor", action: `tool.${call.name}`, risk: "execute", status: "error", message: call.name, details: { runId, subtask, arguments: call.arguments, error: message } });
+        await audit({ actor: "executor", action: `tool.${call.name}`, risk: call.name.startsWith("mcp_") ? "network" : "execute", status: "error", message: call.name, details: { runId, subtask, arguments: call.arguments, error: message } });
       }
     }
   }
@@ -992,7 +1013,8 @@ export async function executeRun(runId: string) {
         securityBoundary: executionConfig.mode === "windows-sandbox",
         modelShellAvailable: executionConfig.mode === "compatibility" || executionConfig.mode === "windows-sandbox",
         sandboxExecAvailable: executionConfig.mode === "windows-sandbox",
-        mcpAvailable: executionConfig.mode === "compatibility"
+        mcpAvailable: mcpToolSchemas(store.mcpServers, executionConfig.mode).length > 0,
+        mcpEffects: executionConfig.mode === "compatibility" ? "host_mode" : "external_to_file_transaction"
       }
     });
     const bindings = await resolveRoleBindings(store);
