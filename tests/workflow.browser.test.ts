@@ -46,7 +46,7 @@ suite("consequential production workflows", () => {
     await page.getByRole("button", { name: "Add runtime" }).click();
     await page.getByLabel("Connection name").fill("Unavailable runtime");
     await page.getByLabel("Endpoint URL").fill("http://127.0.0.1:1");
-    await page.getByLabel("Connection timeout").fill("1000");
+    await page.getByLabel("Response inactivity timeout").fill("1000");
     await page.getByRole("button", { name: "Test connection" }).click();
     await expect.poll(() => page.getByRole("alert").filter({ hasText: "Connection test failed" }).isVisible(), { timeout: 10_000 }).toBe(true);
 

@@ -41,13 +41,13 @@ describe.sequential("memory retrieval through the normal API and Planner context
           const user = messages.find((message) => message.role === "user")?.content ?? "";
           if (system.includes("Planner agent")) {
             plannerPrompt = user;
-            json(response, 200, { message: { content: '["Implement and verify the requested recovery workflow"]' } });
+            json(response, 200, { message: { content: '["Implement and verify the requested recovery workflow"]' }, done: true });
           } else if (system.includes("Critic agent")) {
-            json(response, 200, { message: { content: '{"score":9,"issues":[],"recommendation":"accept"}' } });
+            json(response, 200, { message: { content: '{"score":9,"issues":[],"recommendation":"accept"}' }, done: true });
           } else if (system.includes("structured retrospective")) {
-            json(response, 200, { message: { content: "The retrieval-backed plan preserved recovery guidance and validation." } });
+            json(response, 200, { message: { content: "The retrieval-backed plan preserved recovery guidance and validation." }, done: true });
           } else {
-            json(response, 200, { message: { content: "Implemented the bounded recovery workflow with verification evidence." } });
+            json(response, 200, { message: { content: "Implemented the bounded recovery workflow with verification evidence." }, done: true });
           }
           return;
         }

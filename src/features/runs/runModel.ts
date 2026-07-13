@@ -41,12 +41,13 @@ export function runFailurePresentation(run: TaskRun, settings?: SettingsShape): 
     return {
       code: "runtime_timeout",
       title: `${capitalize(role)} model request timed out`,
-      summary: `${capitalize(role)}${model ? ` using ${model}` : ""} did not finish before the configured runtime deadline. The run stopped during ${run.phase} before that response could be applied.`,
+      summary: `${capitalize(role)}${model ? ` using ${model}` : ""} was aborted by the older fixed request deadline before its response completed. The run stopped during ${run.phase} before that response could be applied.`,
       technicalDetail: error,
       corrections: [
-        "Open Models and increase the selected runtime timeout; for slower local models, start with 180,000 ms.",
+        "Restart NexusHarness on the current build so Ollama uses streamed inactivity timeouts, then resume this run.",
+        "Open Models and test the selected runtime; increase its response inactivity timeout only if model loading or prompt evaluation can remain silent longer.",
         ...(role === "executor" && concurrency > 1 ? [`Reduce Max parallel executors from ${concurrency} to 1 in Settings to avoid queueing several requests on one local model.`] : []),
-        "Retry with a smaller or faster model if responses still exceed the deadline."
+        "Retry with a smaller or faster model if responses still stall without producing activity."
       ],
       retryable: true,
       occurredAt: run.updatedAt,

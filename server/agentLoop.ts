@@ -15,6 +15,7 @@ import { getMemorySubsystem } from "./memory/subsystem.js";
 
 type RoleBindings = Record<AgentRole, { runtime: RuntimeConfig; model: string }>;
 const activeRuns = new Map<string, AbortController>();
+const roleOutputTokenLimits: Record<AgentRole, number> = { planner: 2048, executor: 8192, critic: 2048 };
 type LiveRunCoordinator = RunExecutionCoordinator | WindowsRunExecutionCoordinator;
 const activeTransactions = new Map<string, LiveRunCoordinator>();
 
@@ -172,7 +173,7 @@ async function runModelTurn(role: AgentRole, messages: ChatMessage[], bindings: 
   const { runtime, model } = bindings[role];
   const tools = role === "executor" ? await availableTools(mode) : undefined;
   try {
-    return await chatWithRuntime(runtime, { model, messages, tools, signal });
+    return await chatWithRuntime(runtime, { model, messages, tools, signal, maxOutputTokens: roleOutputTokenLimits[role] });
   } catch (error) {
     if (!signal.aborted && error && typeof error === "object") {
       Object.assign(error, {
@@ -221,17 +222,17 @@ export function classifyRunFailure(error: unknown, run: TaskRun, settings: Setti
   if (context.code === "runtime_timeout" || error instanceof RuntimeRequestError && error.code === "runtime_timeout") {
     const timeoutMs = context.runtimeTimeoutMs ?? (error instanceof RuntimeRequestError ? error.timeoutMs : undefined);
     const role = context.agentRole ?? "model";
-    const timeout = timeoutMs ? `${Math.round(timeoutMs / 1000)} seconds` : "the configured deadline";
+    const timeout = timeoutMs ? `${Math.round(timeoutMs / 1000)} seconds` : "the configured inactivity window";
     const corrections = [
-      `Increase the timeout for ${context.runtimeName ?? "the selected runtime"}${timeoutMs ? ` above ${timeoutMs.toLocaleString()} ms` : ""} in Models.`,
+      `Test ${context.runtimeName ?? "the selected runtime"} in Models and increase its response inactivity timeout${timeoutMs ? ` above ${timeoutMs.toLocaleString()} ms` : ""} if model loading or prompt evaluation can stay silent longer.`,
       ...(role === "executor" && settings.maxParallelExecutors > 1 ? [`Reduce Max parallel executors from ${settings.maxParallelExecutors} to 1 in Settings so local model requests are not queued concurrently.`] : []),
-      `Retry with a smaller or faster model if ${context.model ?? "the selected model"} cannot consistently answer inside the deadline.`
+      `Retry with a smaller or faster model if ${context.model ?? "the selected model"} cannot consistently produce activity inside that window.`
     ];
     return {
       ...base,
       code: "runtime_timeout",
       title: `${capitalize(role)} model request timed out`,
-      summary: `${capitalize(role)} using ${context.model ?? "the selected model"} on ${context.runtimeName ?? "the configured runtime"} did not finish within ${timeout}. The run stopped during ${run.phase} before that model response could be applied.`,
+      summary: `${capitalize(role)} using ${context.model ?? "the selected model"} on ${context.runtimeName ?? "the configured runtime"} produced no response activity for ${timeout}. The run stopped during ${run.phase} before that model response could be applied.`,
       corrections,
       retryable: true,
       timeoutMs

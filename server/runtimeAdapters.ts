@@ -3,6 +3,7 @@ import { access } from "node:fs/promises";
 import type { ChatMessage, ModelChatRequest, ModelChatResponse, ModelInfo, RuntimeConfig } from "./types.js";
 
 const MODEL_CACHE_TTL_MS = 60_000;
+const MAX_RUNTIME_RESPONSE_BYTES = 10 * 1024 * 1024;
 const modelCache = new Map<string, { expiresAt: number; models: ModelInfo[] }>();
 
 export type RuntimeRequestErrorCode = "runtime_timeout" | "runtime_unavailable" | "runtime_http_error" | "runtime_invalid_response";
@@ -34,7 +35,7 @@ async function fetchJson(url: string, init: RequestInit, timeoutMs: number): Pro
     const response = await fetch(url, { ...init, signal });
     const text = await response.text();
     if (!response.ok) throw new RuntimeRequestError("runtime_http_error", `Runtime rejected ${url} with HTTP ${response.status} ${response.statusText}.`, url, timeoutMs, response.status >= 500 || response.status === 408 || response.status === 429, response.status);
-    if (Buffer.byteLength(text) > 10 * 1024 * 1024) throw new RuntimeRequestError("runtime_invalid_response", `Runtime response exceeded the 10 MiB safety limit: ${url}`, url, timeoutMs, false);
+    if (Buffer.byteLength(text) > MAX_RUNTIME_RESPONSE_BYTES) throw new RuntimeRequestError("runtime_invalid_response", `Runtime response exceeded the 10 MiB safety limit: ${url}`, url, timeoutMs, false);
     try {
       return text ? JSON.parse(text) : {};
     } catch (error: any) {
@@ -73,6 +74,7 @@ async function fetchJsonWithLoopbackFallback(url: string, init: RequestInit, tim
       return await fetchJson(attempt, init, timeoutMs);
     } catch (error) {
       if (init.signal?.aborted) throw error;
+      if (error instanceof RuntimeRequestError && error.code !== "runtime_unavailable") throw error;
       lastError = error;
     }
   }
@@ -171,6 +173,7 @@ function ollamaMessages(messages: ChatMessage[]) {
   return messages.map((message) => ({
     role: message.role,
     content: message.content,
+    ...(message.role === "tool" && message.toolName ? { tool_name: message.toolName } : {}),
     ...(message.role === "assistant" && message.toolCalls?.length
       ? { tool_calls: message.toolCalls.map((call) => ({ function: { name: call.name, arguments: call.arguments } })) }
       : {})
@@ -232,9 +235,106 @@ export function parseTextToolCalls(content: string): ModelChatResponse["toolCall
   return [];
 }
 
+async function fetchOllamaChatStream(url: string, init: RequestInit, inactivityTimeoutMs: number): Promise<any[]> {
+  const inactivityController = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const resetInactivityTimer = () => {
+    if (timer) clearTimeout(timer);
+    timer = setTimeout(() => inactivityController.abort(), inactivityTimeoutMs);
+  };
+  resetInactivityTimer();
+  try {
+    const signal = init.signal ? AbortSignal.any([init.signal, inactivityController.signal]) : inactivityController.signal;
+    const response = await fetch(url, { ...init, signal });
+    if (!response.ok) {
+      throw new RuntimeRequestError("runtime_http_error", `Runtime rejected ${url} with HTTP ${response.status} ${response.statusText}.`, url, inactivityTimeoutMs, response.status >= 500 || response.status === 408 || response.status === 429, response.status);
+    }
+    if (!response.body) throw new RuntimeRequestError("runtime_invalid_response", `Runtime returned an empty streaming body from ${url}.`, url, inactivityTimeoutMs, false);
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    const events: any[] = [];
+    let buffered = "";
+    let receivedBytes = 0;
+    const consumeLine = (line: string) => {
+      const trimmed = line.trim();
+      if (!trimmed) return;
+      let event: any;
+      try {
+        event = JSON.parse(trimmed);
+      } catch (error) {
+        throw new RuntimeRequestError("runtime_invalid_response", `Runtime returned invalid streaming JSON from ${url}.`, url, inactivityTimeoutMs, false, undefined, { cause: error as Error });
+      }
+      if (event?.error) throw new RuntimeRequestError("runtime_http_error", `Runtime reported an error while streaming from ${url}.`, url, inactivityTimeoutMs, false);
+      events.push(event);
+    };
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        resetInactivityTimer();
+        receivedBytes += value.byteLength;
+        if (receivedBytes > MAX_RUNTIME_RESPONSE_BYTES) throw new RuntimeRequestError("runtime_invalid_response", `Runtime response exceeded the 10 MiB safety limit: ${url}`, url, inactivityTimeoutMs, false);
+        buffered += decoder.decode(value, { stream: true });
+        let newline = buffered.indexOf("\n");
+        while (newline !== -1) {
+          consumeLine(buffered.slice(0, newline));
+          buffered = buffered.slice(newline + 1);
+          newline = buffered.indexOf("\n");
+        }
+      }
+      buffered += decoder.decode();
+      consumeLine(buffered);
+    } finally {
+      await reader.cancel().catch(() => undefined);
+    }
+    if (!events.length || events.at(-1)?.done !== true) {
+      throw new RuntimeRequestError("runtime_invalid_response", `Runtime streaming response ended before a completion marker from ${url}.`, url, inactivityTimeoutMs, false);
+    }
+    return events;
+  } catch (error) {
+    if (error instanceof RuntimeRequestError) throw error;
+    if (init.signal?.aborted && !inactivityController.signal.aborted) throw error;
+    if (inactivityController.signal.aborted) {
+      throw new RuntimeRequestError(
+        "runtime_timeout",
+        `Runtime produced no response activity for ${formatDuration(inactivityTimeoutMs)} while waiting for ${url}. The runtime may be loading, queued, or stalled.`,
+        url,
+        inactivityTimeoutMs,
+        true,
+        undefined,
+        { cause: error as Error }
+      );
+    }
+    throw new RuntimeRequestError("runtime_unavailable", `Could not connect to runtime endpoint ${url}.`, url, inactivityTimeoutMs, true, undefined, { cause: error as Error });
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+async function fetchOllamaChatStreamWithLoopbackFallback(url: string, init: RequestInit, inactivityTimeoutMs: number): Promise<any[]> {
+  const attempts = [url];
+  const parsed = new URL(url);
+  if (["localhost", "::1", "[::1]"].includes(parsed.hostname)) {
+    parsed.hostname = "127.0.0.1";
+    attempts.push(parsed.toString());
+  }
+  let lastError: unknown;
+  for (const attempt of Array.from(new Set(attempts))) {
+    try {
+      return await fetchOllamaChatStream(attempt, init, inactivityTimeoutMs);
+    } catch (error) {
+      if (init.signal?.aborted) throw error;
+      if (error instanceof RuntimeRequestError && error.code !== "runtime_unavailable") throw error;
+      lastError = error;
+    }
+  }
+  const detail = lastError instanceof Error ? lastError.message : String(lastError);
+  throw new RuntimeRequestError("runtime_unavailable", `Could not connect to runtime endpoint ${url}. Last error: ${detail}`, url, inactivityTimeoutMs, true, undefined, { cause: lastError as Error });
+}
+
 export async function chatWithRuntime(runtime: RuntimeConfig, request: ModelChatRequest): Promise<ModelChatResponse> {
   if (runtime.kind === "ollama") {
-    const data = await fetchJsonWithLoopbackFallback(new URL("/api/chat", runtime.endpoint).toString(), {
+    const events = await fetchOllamaChatStreamWithLoopbackFallback(new URL("/api/chat", runtime.endpoint).toString(), {
       method: "POST",
       headers: { "content-type": "application/json" },
       signal: request.signal,
@@ -242,17 +342,24 @@ export async function chatWithRuntime(runtime: RuntimeConfig, request: ModelChat
         model: request.model,
         messages: ollamaMessages(request.messages),
         tools: request.tools,
-        stream: false,
-        options: { temperature: request.temperature ?? 0.2 }
+        stream: true,
+        options: {
+          temperature: request.temperature ?? 0.2,
+          ...(request.maxOutputTokens ? { num_predict: request.maxOutputTokens } : {})
+        }
       })
     }, runtime.timeoutMs);
-    const toolCalls = (data.message?.tool_calls ?? []).map((call: any, index: number) => ({
+    const content = events.map((event) => event.message?.content ?? "").join("");
+    const thinking = events.map((event) => event.message?.thinking ?? "").join("");
+    const streamedToolCalls = events.flatMap((event) => event.message?.tool_calls ?? []);
+    const toolCalls = streamedToolCalls.map((call: any, index: number) => ({
       id: call.id ?? `call_${index}`,
       name: call.function?.name ?? call.name,
       arguments: parseToolArguments(call.function?.arguments ?? call.arguments)
     }));
-    const content = data.message?.content ?? "";
-    return { content, toolCalls: toolCalls.length ? toolCalls : parseTextToolCalls(content), raw: data };
+    const final = events.at(-1) ?? {};
+    const raw = { ...final, message: { ...(final.message ?? {}), content, thinking, tool_calls: streamedToolCalls } };
+    return { content, toolCalls: toolCalls.length ? toolCalls : parseTextToolCalls(content), raw };
   }
   if (runtime.kind === "lmstudio" || runtime.kind === "llamacpp-server") {
     const data = await fetchJsonWithLoopbackFallback(new URL("/v1/chat/completions", runtime.endpoint).toString(), {
@@ -263,7 +370,8 @@ export async function chatWithRuntime(runtime: RuntimeConfig, request: ModelChat
         model: request.model,
         messages: openAiMessages(request.messages),
         tools: request.tools,
-        temperature: request.temperature ?? 0.2
+        temperature: request.temperature ?? 0.2,
+        ...(request.maxOutputTokens ? { max_tokens: request.maxOutputTokens } : {})
       })
     }, runtime.timeoutMs);
     const message = data.choices?.[0]?.message ?? {};
@@ -281,7 +389,7 @@ export async function chatWithRuntime(runtime: RuntimeConfig, request: ModelChat
 async function chatWithLlamaCli(runtime: RuntimeConfig, request: ModelChatRequest): Promise<ModelChatResponse> {
   if (!runtime.binaryPath || !runtime.modelPath) throw new Error("llama.cpp CLI runtime is missing binaryPath or modelPath.");
   const prompt = request.messages.map((message) => `${message.role.toUpperCase()}: ${message.content}`).join("\n\n");
-  const args = ["-m", runtime.modelPath, "-p", prompt, "-n", "2048", "--temp", String(request.temperature ?? 0.2)];
+  const args = ["-m", runtime.modelPath, "-p", prompt, "-n", String(request.maxOutputTokens ?? 2048), "--temp", String(request.temperature ?? 0.2)];
   const child = spawn(runtime.binaryPath, args, { stdio: ["ignore", "pipe", "pipe"] });
   let stdout = "";
   let stderr = "";
