@@ -4,15 +4,17 @@ import { nanoid } from "nanoid";
 import type { AuditEvent, RunExecutionSummary, StoreShape, TaskRun } from "./types.js";
 import { defaultMemoryEmbeddingSettings, defaultMemoryRetrievalSettings, resolveMemoryConfiguration } from "./memory/config.js";
 import { countPromptTokens, memoryContentHash, workspaceNamespace } from "./memory/preprocessing.js";
+import { userPaths } from "./paths.js";
 
-export const dataDir = process.env.NEXUSHARNESS_DATA_DIR
-  ? path.resolve(process.env.NEXUSHARNESS_DATA_DIR)
-  : path.join(process.cwd(), ".nexusharness");
+export const dataDir = userPaths.dataRoot;
 export const storePath = path.join(dataDir, "store.json");
+const defaultWorkspaceRoot = process.env.NEXUSHARNESS_WORKSPACE_ROOT
+  ? path.resolve(process.env.NEXUSHARNESS_WORKSPACE_ROOT)
+  : path.join(dataDir, "workspace");
 
 const defaultStore: StoreShape = {
   settings: {
-    workspaceRoot: process.cwd(),
+    workspaceRoot: defaultWorkspaceRoot,
     layout: null,
     maxIterations: 5,
     maxParallelExecutors: 3,
@@ -85,7 +87,7 @@ export function mergeStore(raw: Partial<StoreShape>): StoreShape {
 
 export async function loadStore(): Promise<StoreShape> {
   if (cache) return cache;
-  await mkdir(dataDir, { recursive: true });
+  await Promise.all([mkdir(dataDir, { recursive: true }), mkdir(defaultWorkspaceRoot, { recursive: true })]);
   try {
     const raw = await readFile(storePath, "utf8");
     cache = mergeStore(JSON.parse(raw) as Partial<StoreShape>);

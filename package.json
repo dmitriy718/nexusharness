@@ -1,21 +1,39 @@
 {
-  "name": "nexusharness",
-  "version": "2.0.0",
-  "private": true,
+  "name": "@nexusharness/cli",
+  "version": "2.1.0-beta.0",
   "type": "module",
   "description": "Local-first AI coding harness for Ollama, LM Studio, llama.cpp, MCP tools, and auditable agentic workflows.",
+  "bin": {
+    "nexus": "dist-server/cli/index.js"
+  },
+  "files": [
+    "dist-server/",
+    "dist/",
+    "README.md",
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.md",
+    "npm-shrinkwrap.json",
+    ".env.example"
+  ],
   "scripts": {
     "dev": "concurrently -n api,ui -c blue,green \"tsx server/index.ts\" \"wait-on http://127.0.0.1:8787/api/state && vite --host 127.0.0.1\"",
     "dev:api": "tsx server/index.ts",
     "dev:ui": "vite --host 127.0.0.1",
     "build": "tsc -p tsconfig.json && tsc -p tsconfig.server.json && vite build",
     "start": "node dist-server/server/index.js",
+    "cli": "node dist-server/cli/index.js",
     "test": "vitest run",
     "test:a11y": "vitest run tests/accessibility.browser.test.ts",
     "test:performance": "vitest run tests/performance.browser.test.ts",
     "test:smoke": "node scripts/smoke.mjs",
     "test:workflows": "vitest run tests/workflow.browser.test.ts",
-    "test:package": "node scripts/packageDryRun.mjs",
+    "verify:package": "node scripts/packageDryRun.mjs",
+    "test:package": "npm run build && npm run verify:package",
+    "test:cli": "vitest run tests/deploymentPaths.test.ts tests/lifecycle.test.ts tests/cli.integration.test.ts",
+    "prepack": "npm run build && npm run verify:package",
+    "release:artifacts": "node scripts/release/prepareRelease.mjs",
+    "release:smoke": "node scripts/release/smokeTarball.mjs release-artifacts",
+    "release:verify-artifacts": "node scripts/release/verifyArtifacts.mjs release-artifacts",
     "test:memory": "vitest run tests/memoryRetrieval.test.ts tests/vectorMemory.integration.test.ts tests/memoryRuntime.e2e.test.ts",
     "memory:migrate": "tsx scripts/memory.ts migrate",
     "memory:backfill": "tsx scripts/memory.ts backfill",
@@ -48,7 +66,28 @@
     "llama.cpp"
   ],
   "author": "",
-  "license": "UNLICENSED",
+  "license": "Apache-2.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dmitriy718/nexusharness.git"
+  },
+  "homepage": "https://github.com/dmitriy718/nexusharness#readme",
+  "bugs": {
+    "url": "https://github.com/dmitriy718/nexusharness/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "allowScripts": {
+    "better-sqlite3@12.11.1": true,
+    "esbuild@0.28.1": true,
+    "onnxruntime-node@1.24.3": true,
+    "protobufjs@7.6.5": true,
+    "sharp@0.34.5": true
+  },
   "dependencies": {
     "@huggingface/transformers": "^4.2.0",
     "@modelcontextprotocol/sdk": "^1.29.0",

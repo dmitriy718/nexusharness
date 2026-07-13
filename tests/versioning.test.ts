@@ -13,16 +13,18 @@ afterEach(async () => {
 });
 
 describe("release version identity", () => {
-  it("keeps package, lockfile, marketplace, and changelog v2 identity aligned", async () => {
-    const [packageJson, lockJson, marketplace, changelog] = await Promise.all([
+  it("keeps package, lockfile, shrinkwrap, marketplace, and changelog v2 identity aligned", async () => {
+    const [packageJson, lockJson, shrinkwrap, marketplace, changelog] = await Promise.all([
       json(join(root, "package.json")),
       json(join(root, "package-lock.json")),
+      json(join(root, "npm-shrinkwrap.json")),
       json(join(root, "marketplace.json")),
       readFile(join(root, "CHANGELOG.md"), "utf8")
     ]);
-    expect(packageJson.version).toMatch(/^2\.0\.0(?:-(?:alpha|beta|rc)\.\d+)?$/);
+    expect(packageJson.version).toMatch(/^2\.\d+\.\d+(?:-(?:alpha|beta|rc)\.\d+)?$/);
     expect(lockJson.version).toBe(packageJson.version);
     expect(lockJson.packages[""].version).toBe(packageJson.version);
+    expect(shrinkwrap).toEqual(lockJson);
     expect(marketplace.version).toBe(packageJson.version);
     expect(changelog).toContain(`## [${packageJson.version}]`);
   });
@@ -33,6 +35,7 @@ describe("release version identity", () => {
     await Promise.all([
       writeFile(join(sandbox, "package.json"), JSON.stringify({ version: "2.1.0-rc.1" }), "utf8"),
       writeFile(join(sandbox, "package-lock.json"), JSON.stringify({ version: "1.0.0", packages: { "": { version: "1.0.0" } } }), "utf8"),
+      writeFile(join(sandbox, "npm-shrinkwrap.json"), JSON.stringify({ version: "1.0.0", packages: { "": { version: "1.0.0" } } }), "utf8"),
       writeFile(join(sandbox, "marketplace.json"), JSON.stringify({ version: "0.9.0" }), "utf8")
     ]);
 
@@ -42,6 +45,7 @@ describe("release version identity", () => {
     expect((await run(sandbox, "sync")).code).toBe(0);
     expect((await run(sandbox, "check")).code).toBe(0);
     expect((await json(join(sandbox, "package-lock.json"))).version).toBe("2.1.0-rc.1");
+    expect(await json(join(sandbox, "npm-shrinkwrap.json"))).toEqual(await json(join(sandbox, "package-lock.json")));
     expect((await json(join(sandbox, "marketplace.json"))).version).toBe("2.1.0-rc.1");
   });
 });

@@ -2,8 +2,9 @@ import express from "express";
 import cors from "cors";
 import { nanoid } from "nanoid";
 import { z } from "zod";
+import { randomBytes, timingSafeEqual } from "node:crypto";
+import { access, mkdir, readFile, rename, stat, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { stat } from "node:fs/promises";
 import { loadStore, saveStore, audit } from "./store.js";
 import { memorySchema, mcpServerSchema, runtimeSchema, settingsSchema, taskSchema } from "./validation.js";
 import { listRuntimeModels, validateRuntimeConnection } from "./runtimeAdapters.js";
@@ -17,6 +18,11 @@ import { initializeMemorySubsystem, scheduleMemoryBackfill } from "./memory/subs
 import { countPromptTokens, memoryContentHash, sameIndexedText, workspaceNamespace } from "./memory/preprocessing.js";
 import { resolveMemoryConfiguration } from "./memory/config.js";
 import { validateProviderConfiguration } from "./memory/providers.js";
+import { installationPaths, type ServiceState, userPaths } from "./paths.js";
+
+const port = Number(process.env.NEXUSHARNESS_PORT ?? 8787);
+if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error("NEXUSHARNESS_PORT must be an integer from 1 to 65535.");
+const serviceToken = process.env.NEXUSHARNESS_SERVICE_TOKEN?.trim() || randomBytes(32).toString("hex");
 
 const memorySubsystem = await initializeMemorySubsystem();
 const startupMemoryConfiguration = resolveMemoryConfiguration((await loadStore()).settings);
@@ -58,7 +64,7 @@ function requestAbortSignal(request: express.Request): AbortSignal {
 app.get("/api/health", asyncRoute(async (_req, res) => {
   const store = await loadStore();
   const memory = memorySubsystem.diagnostics(store);
-  res.json({ status: "ok", ...buildInfo, uptimeSeconds: Math.floor(process.uptime()), memory: { retrievalMode: memory.retrievalMode, vectorStoreHealthy: memory.vectorStore.ok, activeGeneration: memory.activeGeneration } });
+  res.json({ status: "ok", ...buildInfo, pid: process.pid, port, uptimeSeconds: Math.floor(process.uptime()), memory: { retrievalMode: memory.retrievalMode, vectorStoreHealthy: memory.vectorStore.ok, activeGeneration: memory.activeGeneration } });
 }));
 
 app.get("/api/state", asyncRoute(async (req, res) => {
@@ -432,10 +438,18 @@ app.post("/api/approvals/:id/:decision", asyncRoute(async (req, res) => {
   res.json(approval);
 }));
 
-app.use(express.static(path.join(process.cwd(), "dist")));
+app.post("/api/service/stop", (req, res) => {
+  const authorization = req.header("authorization") ?? "";
+  const supplied = authorization.startsWith("Bearer ") ? authorization.slice("Bearer ".length) : "";
+  if (!safeTokenEqual(supplied, serviceToken)) return res.status(403).json({ error: "Service shutdown authorization failed." });
+  res.status(202).json({ status: "stopping", pid: process.pid });
+  setImmediate(() => shutdown("SIGTERM"));
+});
+
+app.use(express.static(installationPaths.webRoot));
 app.use("/api", (_req, res) => res.status(404).json({ error: "API endpoint not found." }));
 app.get("*", (_req, res) => {
-  res.sendFile(path.join(process.cwd(), "dist", "index.html"));
+  res.sendFile(path.join(installationPaths.webRoot, "index.html"));
 });
 
 app.use((error: any, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
@@ -446,25 +460,72 @@ app.use((error: any, _req: express.Request, res: express.Response, _next: expres
   res.status(status >= 400 && status <= 599 ? status : 500).json({ error: message });
 });
 
-const port = Number(process.env.NEXUSHARNESS_PORT ?? 8787);
-if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error("NEXUSHARNESS_PORT must be an integer from 1 to 65535.");
 const httpServer = app.listen(port, "127.0.0.1", () => {
-  console.log(`NexusHarness API listening on http://127.0.0.1:${port}`);
-  void scheduleMemoryBackfill();
+  void persistServiceState().then(() => {
+    console.log(`NexusHarness API listening on http://127.0.0.1:${port}`);
+    void scheduleMemoryBackfill();
+  }).catch((error) => {
+    console.error(`NexusHarness could not persist service state: ${error instanceof Error ? error.message : String(error)}`);
+    shutdown("SIGTERM");
+  });
 });
+
+let checkingInstallationLease = false;
+const installationLease = setInterval(() => {
+  if (checkingInstallationLease || shuttingDown) return;
+  checkingInstallationLease = true;
+  void Promise.all([access(installationPaths.packageJson), access(installationPaths.serverEntry)])
+    .catch(() => shutdown("SIGTERM"))
+    .finally(() => { checkingInstallationLease = false; });
+}, 5_000);
+installationLease.unref();
 
 let shuttingDown = false;
 function shutdown(signal: NodeJS.Signals): void {
   if (shuttingDown) return;
   shuttingDown = true;
+  clearInterval(installationLease);
   const deadline = setTimeout(() => process.exit(1), 5_000);
   deadline.unref();
   httpServer.close(() => {
     clearTimeout(deadline);
     memorySubsystem.vectorStore?.close();
-    console.log(`NexusHarness API stopped after ${signal}.`);
-    process.exit(0);
+    void removeOwnedServiceState().finally(() => {
+      console.log(`NexusHarness API stopped after ${signal}.`);
+      process.exit(0);
+    });
   });
 }
 process.once("SIGINT", () => shutdown("SIGINT"));
 process.once("SIGTERM", () => shutdown("SIGTERM"));
+
+async function persistServiceState(): Promise<void> {
+  const state: ServiceState = {
+    schemaVersion: 1,
+    pid: process.pid,
+    port,
+    token: serviceToken,
+    version: buildInfo.version,
+    installRoot: installationPaths.installRoot,
+    startedAt: new Date().toISOString()
+  };
+  await mkdir(userPaths.stateRoot, { recursive: true });
+  const temporary = `${userPaths.serviceState}.${process.pid}.tmp`;
+  await writeFile(temporary, `${JSON.stringify(state, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
+  await rename(temporary, userPaths.serviceState);
+}
+
+async function removeOwnedServiceState(): Promise<void> {
+  try {
+    const state = JSON.parse(await readFile(userPaths.serviceState, "utf8")) as Partial<ServiceState>;
+    if (state.pid === process.pid && state.token === serviceToken) await unlink(userPaths.serviceState);
+  } catch (error: any) {
+    if (error?.code !== "ENOENT") console.error(`NexusHarness could not remove service state: ${error?.message ?? String(error)}`);
+  }
+}
+
+function safeTokenEqual(supplied: string, expected: string): boolean {
+  const suppliedBytes = Buffer.from(supplied);
+  const expectedBytes = Buffer.from(expected);
+  return suppliedBytes.length === expectedBytes.length && timingSafeEqual(suppliedBytes, expectedBytes);
+}

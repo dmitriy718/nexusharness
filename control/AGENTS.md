@@ -34,7 +34,7 @@ Use the release command; it archives the claim and writes the worklog. Never man
 
 ## Version policy
 
-Use Semantic Versioning. package.json is the version source of truth. Every claim declares none, patch, minor, or major impact. v2 work targets 2.0.0 and must satisfy control/releases/v2.0.0.md.
+Use Semantic Versioning. package.json is the version source of truth. Every claim declares none, patch, minor, or major impact. Released tags are immutable; post-2.0 work follows the target in its issue and the matching checklist under `control/releases/`.
 
 ## Bootstrap status
 
