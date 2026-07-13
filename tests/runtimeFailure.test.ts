@@ -14,6 +14,34 @@ afterEach(async () => {
 });
 
 describe("runtime request failure classification", () => {
+  it("keeps an active streamed Ollama generation alive beyond the inactivity window", async () => {
+    let receivedBody: any;
+    const endpoint = await runtimeServer((request, response) => {
+      let body = "";
+      request.setEncoding("utf8");
+      request.on("data", (chunk) => { body += chunk; });
+      request.on("end", () => {
+        receivedBody = JSON.parse(body);
+        response.writeHead(200, { "content-type": "application/x-ndjson" });
+        response.write(`${JSON.stringify({ message: { content: "He" }, done: false })}\n`);
+        setTimeout(() => response.write(`${JSON.stringify({ message: { content: "ll" }, done: false })}\n`), 75);
+        setTimeout(() => response.write(`${JSON.stringify({ message: { content: "o" }, done: false })}\n`), 150);
+        setTimeout(() => response.end(`${JSON.stringify({ message: { content: "", tool_calls: [{ function: { name: "file_read", arguments: { path: "README.md" } } }] }, done: true, eval_count: 3 })}\n`), 225);
+      });
+    });
+    const result = await chatWithRuntime(runtimeConfig(endpoint, 200), {
+      model: "model",
+      messages: [{ role: "tool", toolName: "file_list", content: "[]" }],
+      maxOutputTokens: 8192
+    });
+    expect(result).toMatchObject({ content: "Hello", toolCalls: [{ name: "file_read", arguments: { path: "README.md" } }] });
+    expect(receivedBody).toMatchObject({
+      stream: true,
+      messages: [{ role: "tool", tool_name: "file_list", content: "[]" }],
+      options: { num_predict: 8192 }
+    });
+  });
+
   it("distinguishes a model deadline from endpoint unavailability", async () => {
     const endpoint = await runtimeServer(() => undefined);
     const runtime = runtimeConfig(endpoint, 40);

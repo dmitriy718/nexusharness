@@ -25,7 +25,7 @@ describe("failed run guidance", () => {
     expect(alert.textContent).toContain("Executor model request timed out");
     expect(alert.textContent).toContain("Stopped at:");
     expect(alert.textContent).toContain("How to correct it:");
-    expect(alert.textContent).toContain("increase the selected runtime timeout");
+    expect(alert.textContent).toContain("streamed inactivity timeouts");
     expect(alert.textContent).toContain("Reduce Max parallel executors from 3 to 1");
     expect(screen.getByRole("link", { name: "Open Models" }).getAttribute("href")).toBe("/models");
     expect(screen.getByRole("link", { name: "Open Settings" }).getAttribute("href")).toBe("/settings");

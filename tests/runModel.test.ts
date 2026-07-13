@@ -80,6 +80,7 @@ describe("legacy run output", () => {
       memoryTokenBudget: 2000, agentModels: { executor: "runtime:qwen2.5-coder:14b" }
     });
     expect(failure).toMatchObject({ code: "runtime_timeout", title: "Executor model request timed out", endpoint: "http://127.0.0.1:11434/api/chat" });
+    expect(failure?.corrections.join(" ")).toContain("streamed inactivity timeouts");
     expect(failure?.corrections.join(" ")).toContain("Reduce Max parallel executors from 3 to 1");
   });
 

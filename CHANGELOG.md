@@ -4,7 +4,9 @@ All notable NexusHarness changes are documented here. The format follows Keep a 
 
 ## [Unreleased]
 
-_No unreleased changes._
+### Fixed
+
+- Ollama agent turns now consume the official streaming response, treat the configured timeout as an inactivity window that resets while tokens arrive, retain streamed tool calls, and cap role-specific output. Long active generations are no longer killed at a fixed wall-clock minute or mislabeled as endpoint failures.
 
 ## [2.1.0-beta.0] - 2026-07-13
 

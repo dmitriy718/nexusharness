@@ -137,6 +137,7 @@ export interface ModelChatRequest {
   messages: ChatMessage[];
   tools?: unknown[];
   temperature?: number;
+  maxOutputTokens?: number;
   signal?: AbortSignal;
 }
 

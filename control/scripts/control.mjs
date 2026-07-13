@@ -123,7 +123,13 @@ async function withLock(callback) {
       break;
     } catch (error) {
       if (error.code !== "EEXIST") throw error;
-      const details = await stat(lockDir);
+      let details;
+      try {
+        details = await stat(lockDir);
+      } catch (statError) {
+        if (statError.code === "ENOENT") continue;
+        throw statError;
+      }
       const ageMinutes = (Date.now() - details.mtimeMs) / 60000;
       if (ageMinutes > config.lockStaleMinutes) {
         throw new Error("Claim mutex is stale (" + ageMinutes.toFixed(1) + " minutes). Inspect " + path.relative(root, lockDir) + "; do not delete it silently.");
@@ -178,7 +184,7 @@ async function appendWorklog(kind, claim, detail) {
     "- Areas: " + claim.areas.join(", "),
     "- Resources: " + (claim.resources.join(", ") || "none"),
     "- Version impact: " + claim.versionImpact,
-    detail ? "\n" + detail.trim() : ""
+    ...(detail ? ["", detail.trim()] : [])
   ].join("\n") + "\n";
   await appendFile(filePath, entry, "utf8");
 }

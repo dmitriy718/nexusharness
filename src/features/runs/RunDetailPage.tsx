@@ -113,7 +113,7 @@ export function RunDetailPage() {
       {failure && <section className="failure-guidance" aria-label="Run failure explanation"><InlineAlert tone="danger" title={failure.title}>
         <p>{failure.summary}</p>
         <p><strong>Stopped at:</strong> {failure.phase}{failure.agentRole ? ` · ${failure.agentRole}` : ""}{failure.subtask ? ` · ${failure.subtask}` : ""}</p>
-        {(failure.runtimeName || failure.model || failure.timeoutMs) && <p><strong>Runtime:</strong> {[failure.runtimeName, failure.model, failure.timeoutMs ? `${failure.timeoutMs.toLocaleString()} ms deadline` : ""].filter(Boolean).join(" · ")}</p>}
+        {(failure.runtimeName || failure.model || failure.timeoutMs) && <p><strong>Runtime:</strong> {[failure.runtimeName, failure.model, failure.timeoutMs ? `${failure.timeoutMs.toLocaleString()} ms inactivity timeout` : ""].filter(Boolean).join(" · ")}</p>}
         <p><strong>How to correct it:</strong></p>
         <ol>{failure.corrections.map((correction) => <li key={correction}>{correction}</li>)}</ol>
         <div className="form-actions"><Link className="button secondary" to="/models">Open Models</Link><Link className="button secondary" to="/settings">Open Settings</Link></div>
