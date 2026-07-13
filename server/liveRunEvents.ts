@@ -31,18 +31,25 @@ export interface LiveRunEvent {
 
 export type LiveRunEventInput = Omit<LiveRunEvent, "id" | "sequence" | "at"> & { at?: string };
 type Subscriber = (event: LiveRunEvent) => void;
-type RunEventState = { sequence: number; events: LiveRunEvent[]; subscribers: Set<Subscriber>; lastTouched: number };
+type RunEventState = {
+  sequence: number;
+  events: LiveRunEvent[];
+  subscribers: Set<Subscriber>;
+  lastBroadcast: Map<string, { at: string; contentLength: number }>;
+  lastTouched: number;
+};
 
 const MAX_EVENTS_PER_RUN = 300;
 const MAX_TRACKED_RUNS = 25;
 const MAX_EVENT_CONTENT = 20_000;
 const STREAM_COALESCE_MS = 350;
+const STREAM_COALESCE_CHARACTERS = 512;
 const states = new Map<string, RunEventState>();
 
 function stateFor(runId: string): RunEventState {
   let state = states.get(runId);
   if (!state) {
-    state = { sequence: 0, events: [], subscribers: new Set(), lastTouched: Date.now() };
+    state = { sequence: 0, events: [], subscribers: new Set(), lastBroadcast: new Map(), lastTouched: Date.now() };
     states.set(runId, state);
     pruneStates();
   }
@@ -81,6 +88,7 @@ export function publishLiveRunEvent(input: LiveRunEventInput): LiveRunEvent {
   const at = input.at ?? new Date().toISOString();
   const previous = state.events.at(-1);
   let event: LiveRunEvent;
+  let shouldBroadcast = true;
   if (canCoalesce(previous, input, at)) {
     event = {
       ...previous,
@@ -90,7 +98,13 @@ export function publishLiveRunEvent(input: LiveRunEventInput): LiveRunEvent {
       status: input.status ?? previous.status
     };
     state.events[state.events.length - 1] = event;
+    const lastBroadcast = state.lastBroadcast.get(event.id);
+    const contentLength = event.content?.length ?? 0;
+    shouldBroadcast = !lastBroadcast
+      || Date.parse(at) - Date.parse(lastBroadcast.at) >= STREAM_COALESCE_MS
+      || contentLength - lastBroadcast.contentLength >= STREAM_COALESCE_CHARACTERS;
   } else {
+    if (previous) broadcastIfChanged(state, previous);
     event = {
       ...input,
       id: nanoid(),
@@ -99,12 +113,25 @@ export function publishLiveRunEvent(input: LiveRunEventInput): LiveRunEvent {
       content: boundedContent(input.content)
     };
     state.events.push(event);
-    if (state.events.length > MAX_EVENTS_PER_RUN) state.events.splice(0, state.events.length - MAX_EVENTS_PER_RUN);
+    if (state.events.length > MAX_EVENTS_PER_RUN) {
+      const removed = state.events.splice(0, state.events.length - MAX_EVENTS_PER_RUN);
+      for (const item of removed) state.lastBroadcast.delete(item.id);
+    }
   }
+  if (shouldBroadcast) broadcast(state, event);
+  return structuredClone(event);
+}
+
+function broadcastIfChanged(state: RunEventState, event: LiveRunEvent): void {
+  const previous = state.lastBroadcast.get(event.id);
+  if (!previous || previous.contentLength !== (event.content?.length ?? 0)) broadcast(state, event);
+}
+
+function broadcast(state: RunEventState, event: LiveRunEvent): void {
+  state.lastBroadcast.set(event.id, { at: event.at, contentLength: event.content?.length ?? 0 });
   for (const subscriber of state.subscribers) {
     try { subscriber(structuredClone(event)); } catch { /* A disconnected observer cannot affect a run. */ }
   }
-  return structuredClone(event);
 }
 
 export function liveRunEventSnapshot(runId: string): LiveRunEvent[] {
