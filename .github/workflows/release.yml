@@ -1,0 +1,109 @@
+name: Release NexusHarness
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-verify:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.artifacts.outputs.version }}
+      dist_tag: ${{ steps.artifacts.outputs.dist_tag }}
+      tarball: ${{ steps.artifacts.outputs.tarball }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22.14.0
+          package-manager-cache: false
+      - run: npm install --global npm@11.18.0
+      - run: npm ci
+      - run: node scripts/release/verifyTag.mjs "${GITHUB_REF_NAME}"
+      - run: npm run release:verify
+      - id: artifacts
+        env:
+          REQUIRE_CLEAN_RELEASE: "1"
+        run: npm run release:artifacts
+      - run: npm run release:verify-artifacts
+      - uses: actions/upload-artifact@v7
+        with:
+          name: nexus-release-${{ steps.artifacts.outputs.version }}
+          path: release-artifacts/
+          if-no-files-found: error
+          retention-days: 30
+
+  exact-tarball-smoke:
+    needs: build-and-verify
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-15-intel, macos-latest, windows-latest]
+        node: [20, 22, 24]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ matrix.node }}
+          package-manager-cache: false
+      - uses: actions/download-artifact@v8
+        with:
+          name: nexus-release-${{ needs.build-and-verify.outputs.version }}
+          path: release-artifacts
+      - run: npm run release:smoke
+
+  publish:
+    needs: [build-and-verify, exact-tarball-smoke]
+    runs-on: ubuntu-latest
+    environment: npm-release
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+      artifact-metadata: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22.14.0
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+      - run: npm install --global npm@11.18.0
+      - uses: actions/download-artifact@v8
+        with:
+          name: nexus-release-${{ needs.build-and-verify.outputs.version }}
+          path: release-artifacts
+      - run: node scripts/release/verifyArtifacts.mjs release-artifacts
+      - uses: actions/attest@v4
+        with:
+          subject-path: |
+            release-artifacts/${{ needs.build-and-verify.outputs.tarball }}
+            release-artifacts/SBOM.cdx.json
+            release-artifacts/artifact-manifest.json
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh release create "${GITHUB_REF_NAME}"
+          release-artifacts/${{ needs.build-and-verify.outputs.tarball }}
+          release-artifacts/SBOM.cdx.json
+          release-artifacts/artifact-manifest.json
+          release-artifacts/SHA256SUMS
+          --verify-tag
+          --draft
+          --title "NexusHarness ${{ needs.build-and-verify.outputs.version }}"
+          --notes-file release-artifacts/release-notes.md
+      - run: npm publish "release-artifacts/${{ needs.build-and-verify.outputs.tarball }}" --access public --provenance --tag "${{ needs.build-and-verify.outputs.dist_tag }}"
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release edit "${GITHUB_REF_NAME}" --draft=false

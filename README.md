@@ -38,6 +38,21 @@ npm run build
 npm start
 ```
 
+The same build now includes the portable CLI foundation. From a source checkout, exercise it with:
+
+```bash
+npm run cli -- --version
+npm run cli -- doctor
+npm run cli -- open --no-open
+npm run cli -- status
+npm run cli -- migrate --dry-run
+npm run cli -- clean --dry-run
+npm run cli -- uninstall --purge --dry-run
+npm run cli -- stop
+```
+
+The compiled launcher resolves its server, browser assets, and package metadata from the installation rather than the launch directory. It can be run from an unrelated directory as `node /absolute/path/to/nexus/dist-server/cli/index.js`. The production tarball uses the scoped `@nexusharness/cli` identity, installs the short `nexus` executable, and carries a reproducible production shrinkwrap. `npm run release:artifacts`, `npm run release:verify-artifacts`, and `npm run release:smoke` build, inventory, checksum, and clean-install the exact release payload. The package and Homebrew formula are not published yet; [easyDeploy.md](easyDeploy.md) records current implementation status and the remaining external ownership, hosted-CI, provenance, platform, and release gates.
+
 Configuration examples and optional environment variables are in `.env.example`.
 
 ## First launch
@@ -155,14 +170,21 @@ See `docs/EMBEDDING_VECTOR_MEMORY_IMPLEMENTATION.md` for configuration, privacy 
 
 ## Local data and control plane
 
-Application settings, runtime metadata, MCP configuration, source memories, approvals, run history, execution summaries, and audit logs are stored locally in:
+Application settings, runtime metadata, MCP configuration, source memories, approvals, run history, execution summaries, and audit logs use per-user platform locations by default:
 
 ```text
-.nexusharness/store.json
-.nexusharness/memory-vectors.sqlite
+Windows: %LOCALAPPDATA%\NexusHarness\data
+macOS:   ~/Library/Application Support/NexusHarness/data
+Linux:   ${XDG_DATA_HOME:-~/.local/share}/nexusharness
 ```
 
-Set `NEXUSHARNESS_DATA_DIR` to move application state outside the source tree. NexusHarness does not require cloud authentication or send telemetry.
+Service state and disposable cache use the corresponding platform state/cache locations. Set `NEXUSHARNESS_DATA_DIR` to use an explicit absolute Nexus-managed root; the source quickstart scripts continue passing the checkout's `.nexusharness` directory for backward-compatible contributor workflows. New stores receive an empty Nexus-managed workspace unless `NEXUSHARNESS_WORKSPACE_ROOT` is explicitly set, and saved workspace settings continue to win afterward. NexusHarness does not require cloud authentication or send telemetry.
+
+The service state file contains a per-launch shutdown secret and is never returned by CLI status output. `nexus stop` uses that secret to request a graceful loopback-only shutdown.
+
+`nexus doctor` reports bounded legacy `.nexusharness` candidates. Use `nexus migrate --dry-run` to preview a verified copy into the per-user data location; migration stages and hashes every durable file, rejects links/conflicts or malformed stores/databases, records completion, and preserves the source. Use `--from PATH` when more than one candidate exists and `--non-interactive --confirm-migration` only after reviewing the preview.
+
+`nexus clean --dry-run` previews disposable cache removal. `nexus uninstall --purge --dry-run` previews every Nexus-owned target and workspace exclusion. Actual non-interactive purge requires `--confirm-purge`; `--keep-data` preserves durable config/data, and credential entries are always reported as preserved until OS credential-store integration exists. Purge stops the service, rebuilds and compares the target plan after shutdown, refuses malformed store state or filesystem roots, never follows links, and preserves the configured workspace even when it is nested inside the Nexus data root. An explicit `NEXUSHARNESS_DATA_DIR` is treated conservatively: only recognized Nexus entries are removed and unknown siblings are reported and preserved. Run purge before removing the package executable.
 
 Project work is coordinated through `control/`. Before changing the repository, an agent must read `control/AGENTS.md`, check for overlapping claims, acquire a scoped claim, keep it live, verify its work, and release it with finishing notes. `control/issues/BOARD.md` is the generated project board; archived claims and dated worklogs retain the evidence trail.
 

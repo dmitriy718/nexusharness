@@ -11,6 +11,13 @@ if (!index.includes(`name="nexusharness-version" content="${metadata.version}"`)
 
 const port = await availablePort();
 const dataDir = await mkdtemp(path.join(tmpdir(), "nexusharness-smoke-"));
+const launchDir = await mkdtemp(path.join(tmpdir(), "nexusharness-launch-"));
+const cliEntry = path.join(root, "dist-server", "cli", "index.js");
+const cliEnvironment = { ...process.env, NEXUSHARNESS_DATA_DIR: dataDir };
+const versionResult = JSON.parse((await runCommand(process.execPath, [cliEntry, "--version", "--json"], launchDir, cliEnvironment)).stdout);
+if (versionResult.version !== metadata.version) throw new Error(`Compiled CLI version mismatch: ${JSON.stringify(versionResult)}`);
+const doctorResult = JSON.parse((await runCommand(process.execPath, [cliEntry, "doctor", "--non-interactive", "--json"], launchDir, cliEnvironment)).stdout);
+if (!doctorResult.ok) throw new Error(`Compiled CLI doctor failed: ${JSON.stringify(doctorResult)}`);
 const seededRun = {
   id: "run-smoke-cell", task: "Verify bounded execution payloads", status: "passed", phase: "done", iteration: 1, maxIterations: 5, log: [],
   createdAt: "2026-07-11T08:00:00.000Z", updatedAt: "2026-07-11T08:01:00.000Z",
@@ -23,8 +30,8 @@ const seededRun = {
   }
 };
 await writeFile(path.join(dataDir, "store.json"), JSON.stringify({ runs: [seededRun] }), "utf8");
-const child = spawn(process.execPath, ["dist-server/server/index.js"], {
-  cwd: root,
+const child = spawn(process.execPath, [path.join(root, "dist-server", "server", "index.js")], {
+  cwd: launchDir,
   env: { ...process.env, NODE_ENV: "production", NEXUSHARNESS_PORT: String(port), NEXUSHARNESS_DATA_DIR: dataDir, NEXUSHARNESS_COMMIT: "smoke-test" },
   stdio: "ignore",
   windowsHide: true
@@ -43,6 +50,10 @@ try {
   if (runs.items[0]?.execution !== undefined) throw new Error("Paged run history leaked full execution evidence.");
   const detail = await fetch(`http://127.0.0.1:${port}/api/runs/${seededRun.id}`).then(assertOk).then((response) => response.json());
   if (detail.run?.execution?.cellId !== "cell-smoke" || detail.run.execution.effects.length !== 1) throw new Error("Run detail omitted execution evidence.");
+  const statusResult = JSON.parse((await runCommand(process.execPath, [cliEntry, "status", "--json"], launchDir, cliEnvironment)).stdout);
+  if (!statusResult.running || statusResult.port !== port || statusResult.version !== metadata.version) throw new Error(`Compiled CLI did not reconnect to the service: ${JSON.stringify(statusResult)}`);
+  const stopResult = JSON.parse((await runCommand(process.execPath, [cliEntry, "stop", "--json"], launchDir, cliEnvironment)).stdout);
+  if (!stopResult.stopped) throw new Error(`Compiled CLI did not stop the service: ${JSON.stringify(stopResult)}`);
   console.log(`Production smoke passed: v${health.version}, commit ${health.commit}, API port ${port}.`);
 } finally {
   if (child.exitCode === null) {
@@ -50,7 +61,10 @@ try {
     child.kill();
     await Promise.race([exited, new Promise((resolve) => setTimeout(resolve, 5_000))]);
   }
-  await rm(dataDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  await Promise.all([
+    rm(dataDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }),
+    rm(launchDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })
+  ]);
 }
 
 async function availablePort() {
@@ -76,4 +90,19 @@ async function waitFor(url) {
 function assertOk(response) {
   if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
   return response;
+}
+
+function runCommand(command, args, cwd, env) {
+  return new Promise((resolveRun, reject) => {
+    const child = spawn(command, args, { cwd, env, windowsHide: true });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk) => { stdout += chunk; });
+    child.stderr.on("data", (chunk) => { stderr += chunk; });
+    child.once("error", reject);
+    child.once("close", (code) => {
+      if (code === 0) resolveRun({ stdout, stderr });
+      else reject(new Error(`Command failed (${code}): ${stderr || stdout}`));
+    });
+  });
 }

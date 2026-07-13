@@ -9,9 +9,11 @@ NexusHarness uses Semantic Versioning. package.json is the version source of tru
 - Patch: backward-compatible fixes, accessibility corrections, and internal improvements.
 - Prerelease: alpha.N, beta.N, and rc.N builds used before a stable release.
 
-The v2 progression is:
+The active v2.1 prerelease progression is:
 
-    2.0.0-alpha.N -> 2.0.0-beta.N -> 2.0.0-rc.N -> 2.0.0
+    2.1.0-beta.N -> 2.1.0-rc.N -> 2.1.0
+
+Never reuse or move an existing release tag. Publish fixes as a new Semantic Version.
 
 ## Change tracking
 
@@ -26,7 +28,7 @@ After changing package.json through npm version:
     npm run version:sync
     npm run version:check
 
-The sync command updates package-lock.json and marketplace.json. The client build receives version, commit, build time, and mode through Vite. The API reads the package version at startup and returns the same identity from /api/health.
+The sync command updates `package-lock.json`, the published `npm-shrinkwrap.json`, and `marketplace.json` from `package.json`. The client build receives version, commit, build time, and mode through Vite. The API reads the package version at startup and returns the same identity from `/api/health`.
 
 Production builds should set:
 

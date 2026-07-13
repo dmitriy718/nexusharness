@@ -1,12 +1,11 @@
 import { readFileSync } from "node:fs";
-import path from "node:path";
+import { installationPaths } from "./paths.js";
 
 type PackageMetadata = {
   version: string;
 };
 
-const packagePath = path.join(process.cwd(), "package.json");
-const packageMetadata = JSON.parse(readFileSync(packagePath, "utf8")) as PackageMetadata;
+const packageMetadata = JSON.parse(readFileSync(installationPaths.packageJson, "utf8")) as PackageMetadata;
 
 export const buildInfo = Object.freeze({
   version: packageMetadata.version,

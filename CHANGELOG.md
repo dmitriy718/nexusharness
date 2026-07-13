@@ -4,8 +4,18 @@ All notable NexusHarness changes are documented here. The format follows Keep a 
 
 ## [Unreleased]
 
+_No unreleased changes._
+
+## [2.1.0-beta.0] - 2026-07-13
+
 ### Added
 
+- Added the compiled `nexus` CLI foundation with version, doctor, start/open, status, direct task submission, and authenticated clean-stop commands; machine-readable output and no-browser/non-interactive modes work from launch directories unrelated to the source tree.
+- Added module-relative installation discovery, platform-aware per-user config/data/state/cache paths, single-instance startup locking, bounded service-state publication, a per-launch shutdown secret, and installation-removal self-termination while retaining the explicit `NEXUSHARNESS_DATA_DIR` override.
+- Added an explicit production package allowlist and exact-tarball checks for the scoped `@nexusharness/cli` package and short `nexus` executable.
+- Added reproducible published dependency locking, pinned review policy for native/transitive install scripts, changelog/tag/version enforcement, immutable npm tarball assembly, SHA-256 and file manifests, CycloneDX SBOM generation, clean-prefix install/start/doctor/stop smoke testing, and a protected cross-platform GitHub trusted-publishing workflow that creates the canonical release without a stored npm token.
+- Added preview-first legacy migration, cache cleanup, normal uninstall, and confirmed purge commands with staged hash verification, idempotent migration markers, source preservation, protected workspace/install boundaries, symlink refusal/non-traversal, stale-state doctor repair, and target-plan race detection.
+- Adopted Apache-2.0 for NexusHarness original work and added a direct production-dependency notice inventory as the legal foundation for future distributable artifacts.
 - Added structured run-failure evidence and prominent failed-run guidance that states what stopped, the responsible phase/agent/runtime/model/deadline, technical details, and specific corrective actions; legacy timeout records receive the same human-readable presentation.
 - Added root `quickstart.sh` and native Windows `quickstart.ps1` launchers for idempotent new-machine deployment with prerequisite detection, optional user-scoped Node installation, lockfile-based dependency repair, production build and smoke validation, memory migrations, healthy-instance detection, process-safe startup, verbose diagnostics, and Nexus terminal banners.
 - Windows quickstart now identifies a conflicting default-port owner and selects the next free loopback port automatically, while preserving fail-closed behavior for explicitly requested ports and limiting `-Repair` guidance to relevant failures.
@@ -18,6 +28,7 @@ All notable NexusHarness changes are documented here. The format follows Keep a 
 
 ### Changed
 
+- Server browser assets and package identity now resolve relative to installed modules instead of `process.cwd()`; a new store defaults to a safe Nexus-managed workspace rather than granting the launch directory as an implicit workspace.
 - Runtime adapters now distinguish request deadlines, endpoint unavailability, HTTP rejection, and malformed responses instead of presenting every aborted request as an unreachable endpoint; failed-run audit records retain the typed category without provider response bodies.
 - Replaced the Planner's pin/title/task keyword selector and four-characters-per-token truncation with the production memory retriever while retaining lexical-only as the default rollback mode.
 - Expanded Memory settings with provider, rollout, ranking, privacy, chunking, caching, retry, diversity, pinned, and failure controls, and exposed per-memory indexing state plus redacted administrative diagnostics.
@@ -122,8 +133,9 @@ All notable NexusHarness changes are documented here. The format follows Keep a 
 
 - Initial local-first harness with task execution, local runtimes, MCP, workspace tools, memory, approvals, audit logs, and operator settings.
 
-[Unreleased]: https://github.com/dmitriy718/mir/compare/v2.0.0...HEAD
-[2.0.0]: https://github.com/dmitriy718/mir/compare/v2.0.0-beta.1...v2.0.0
-[2.0.0-beta.1]: https://github.com/dmitriy718/mir/compare/v2.0.0-alpha.1...v2.0.0-beta.1
-[2.0.0-alpha.1]: https://github.com/dmitriy718/mir/compare/4c6c364...v2.0.0-alpha.1
-[0.1.0]: https://github.com/dmitriy718/mir/releases/tag/v0.1.0
+[Unreleased]: https://github.com/dmitriy718/nexusharness/compare/v2.1.0-beta.0...HEAD
+[2.1.0-beta.0]: https://github.com/dmitriy718/nexusharness/compare/v2.0.0...v2.1.0-beta.0
+[2.0.0]: https://github.com/dmitriy718/nexusharness/compare/v2.0.0-beta.1...v2.0.0
+[2.0.0-beta.1]: https://github.com/dmitriy718/nexusharness/compare/v2.0.0-alpha.1...v2.0.0-beta.1
+[2.0.0-alpha.1]: https://github.com/dmitriy718/nexusharness/compare/4c6c364...v2.0.0-alpha.1
+[0.1.0]: https://github.com/dmitriy718/nexusharness/releases/tag/v0.1.0

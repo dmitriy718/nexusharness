@@ -5,6 +5,7 @@ const root = process.cwd();
 const files = {
   package: path.join(root, "package.json"),
   lock: path.join(root, "package-lock.json"),
+  shrinkwrap: path.join(root, "npm-shrinkwrap.json"),
   marketplace: path.join(root, "marketplace.json")
 };
 
@@ -24,20 +25,24 @@ function validateVersion(version) {
 }
 
 async function state() {
-  const [packageJson, lockJson, marketplaceJson] = await Promise.all([
+  const [packageJson, lockJson, shrinkwrapJson, marketplaceJson] = await Promise.all([
     readJson(files.package),
     readJson(files.lock),
+    readJson(files.shrinkwrap),
     readJson(files.marketplace)
   ]);
   validateVersion(packageJson.version);
-  return { packageJson, lockJson, marketplaceJson, version: packageJson.version };
+  return { packageJson, lockJson, shrinkwrapJson, marketplaceJson, version: packageJson.version };
 }
 
 async function check() {
-  const { lockJson, marketplaceJson, version } = await state();
+  const { lockJson, shrinkwrapJson, marketplaceJson, version } = await state();
   const mismatches = [];
   if (lockJson.version !== version) mismatches.push("package-lock.json top-level version is " + lockJson.version);
   if (lockJson.packages?.[""]?.version !== version) mismatches.push("package-lock.json root package version is " + lockJson.packages?.[""]?.version);
+  if (shrinkwrapJson.version !== version) mismatches.push("npm-shrinkwrap.json top-level version is " + shrinkwrapJson.version);
+  if (shrinkwrapJson.packages?.[""]?.version !== version) mismatches.push("npm-shrinkwrap.json root package version is " + shrinkwrapJson.packages?.[""]?.version);
+  if (JSON.stringify(shrinkwrapJson) !== JSON.stringify(lockJson)) mismatches.push("npm-shrinkwrap.json dependency closure differs from package-lock.json");
   if (marketplaceJson.version !== version) mismatches.push("marketplace.json version is " + marketplaceJson.version);
   if (mismatches.length) {
     throw new Error("Version mismatch; expected " + version + ":\n- " + mismatches.join("\n- "));
@@ -52,9 +57,10 @@ async function sync() {
   marketplaceJson.version = version;
   await Promise.all([
     atomicJson(files.lock, lockJson),
+    atomicJson(files.shrinkwrap, lockJson),
     atomicJson(files.marketplace, marketplaceJson)
   ]);
-  console.log("Synchronized package-lock.json and marketplace.json to " + version);
+  console.log("Synchronized package-lock.json, npm-shrinkwrap.json, and marketplace.json to " + version);
 }
 
 const command = process.argv[2];
