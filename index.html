@@ -1,93 +1,16 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Nexus Harness</title>
-  <link rel="stylesheet" href="styles.css">
-</head>
-<body>
-  <!-- Header -->
-  <header>
-    <div class="logo">Nexus Harness</div>
-    <nav>
-      <ul>
-        <li><a href="#home">Home</a></li>
-        <li><a href="about.html">About</a></li>
-        <li><a href="features.html">Features</a></li>
-        <li><a href="download.html">Download</a></li>
-        <li><a href="contact.html">Contact</a></li>
-      </ul>
-    </nav>
-  </header>
-
-  <!-- Hero Section -->
-  <section id="home" class="hero">
-    <h1>Welcome to Nexus Harness</h1>
-    <p>Experience the future of harnessing technology</p>
-    <button onclick="startFreeTrial()">Start Free Trial</button>
-  </section>
-
-  <!-- Features Section -->
-  <section id="features" class="features">
-    <h2>Features</h2>
-    <div class="feature-item">
-      <img src="designs/features_page_design.png" alt="Feature 1: Advanced Automation - Automate repetitive tasks to save time and reduce errors.">
-      <p>Feature 1 Description: Nexus Harness offers advanced automation capabilities to streamline your workflow.</p>
-    </div>
-    <div class="feature-item">
-      <img src="designs/features_page_design.png" alt="Feature 2: Intuitive UI - User-friendly interface for easy navigation and management.">
-      <p>Feature 2 Description: Intuitive user interface for easy navigation and management.</p>
-    </div>
-    <!-- Add more feature items as needed -->
-  </section>
-
-  <!-- Testimonial Section -->
-  <section class="testimonials">
-    <h2>Testimonials</h2>
-    <div class="testimonial-item">
-      <img src="designs/testimonial.png" alt="Customer 1: Nexus Harness has transformed our productivity and efficiency.">
-      <p>Customer 1 Testimonial: Nexus Harness has transformed our productivity and efficiency.</p>
-    </div>
-    <!-- Add more testimonial items as needed -->
-  </section>
-
-  <!-- Footer -->
-  <footer>
-    <ul>
-      <li><a href="#privacy">Privacy Policy</a></li>
-      <li><a href="#terms">Terms of Service</a></li>
-      <li><a href="#legal">Legal</a></li>
-      <li><a href="#accessibility">Accessibility</a></li>
-    </ul>
-  </footer>
-
-  <!-- Free Trial Modal -->
-  <div id="freeTrialModal" class="modal">
-    <div class="modal-content">
-      <span class="close" onclick="closeFreeTrialModal()">&times;</span>
-      <h2>Start Your Free Trial</h2>
-      <form action="/submit-trial-form" method="post">
-        <label for="name">Name:</label>
-        <input type="text" id="name" name="name" required aria-label="Name">
-
-        <label for="email">Email:</label>
-        <input type="email" id="email" name="email" required aria-label="Email">
-
-        <button type="submit">Submit</button>
-      </form>
-    </div>
-  </div>
-
-  <!-- JavaScript for Modal -->
-  <script>
-    function startFreeTrial() {
-      document.getElementById('freeTrialModal').style.display = 'block';
-    }
-
-    function closeFreeTrialModal() {
-      document.getElementById('freeTrialModal').style.display = 'none';
-    }
-  </script>
-</body>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#070a12" />
+    <meta name="description" content="Local-first mission control for auditable AI coding agents." />
+    <link rel="icon" type="image/svg+xml" href="/nexus-mark.svg" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <title>NexusHarness — Local agent mission control</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
 </html>
