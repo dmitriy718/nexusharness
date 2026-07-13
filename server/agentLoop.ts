@@ -596,7 +596,7 @@ async function saveRunProgress(run: TaskRun, memoryEntry?: StoreShape["memory"][
   if (stored.execution && (!merged.execution || Date.parse(stored.execution.updatedAt) > Date.parse(merged.execution.updatedAt))) {
     merged.execution = structuredClone(stored.execution);
   }
-  if (Date.parse(stored.updatedAt) > Date.parse(merged.updatedAt)) merged.updatedAt = stored.updatedAt;
+  merged.updatedAt = new Date().toISOString();
   latest.runs[index] = merged;
   if (memoryEntry && !latest.memory.some((entry) => entry.id === memoryEntry.id)) latest.memory.unshift(structuredClone(memoryEntry));
   await saveStore(latest);
@@ -1042,7 +1042,7 @@ export async function executeRun(runId: string) {
     if (!completed) throw new Error("Run did not complete before the iteration limit.");
 
     run.phase = "retrospective";
-    publishLiveRunEvent({ runId: run.id, kind: "phase", title: "Retrospective phase", content: "Capturing reusable lessons from this run.", phase: "retrospective", status: "active" });
+    await saveRunProgress(run);
     let retrospective: StoreShape["memory"][number] | undefined;
     try {
       const retro = await runModelTurn("critic", [

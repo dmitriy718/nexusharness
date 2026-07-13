@@ -913,6 +913,7 @@
   place-items: center;
   background: var(--surface-1);
   color: var(--faint);
+  transition: border-color 180ms ease, background-color 180ms ease, color 180ms ease, box-shadow 180ms ease;
 }
 
 .phase-rail strong,
@@ -927,13 +928,16 @@
 }
 
 .phase-complete .phase-node {
-  border-color: rgba(80, 217, 155, 0.3);
-  background: rgba(80, 217, 155, 0.11);
-  color: var(--green);
+  border-color: rgba(81, 216, 232, 0.55);
+  background: rgba(81, 216, 232, 0.14);
+  color: var(--cyan);
+  box-shadow: 0 0 14px rgba(81, 216, 232, 0.14);
 }
 
 .phase-complete > i {
-  background: rgba(80, 217, 155, 0.35) !important;
+  height: 2px;
+  background: linear-gradient(90deg, rgba(81, 216, 232, 0.82), rgba(109, 159, 255, 0.52)) !important;
+  box-shadow: 0 0 8px rgba(81, 216, 232, 0.22);
 }
 
 .phase-skipped .phase-node {
@@ -946,11 +950,11 @@
   background: rgba(242, 198, 109, 0.24) !important;
 }
 
-.phase-active .phase-node,
-.phase-waiting .phase-node {
-  border-color: var(--violet);
-  color: var(--violet-bright);
-  box-shadow: 0 0 18px rgba(146, 132, 255, 0.25);
+.phase-active .phase-node {
+  border-color: var(--cyan);
+  background: rgba(81, 216, 232, 0.1);
+  color: #bff7fb;
+  box-shadow: 0 0 20px rgba(81, 216, 232, 0.3);
 }
 
 .phase-waiting .phase-node {
