@@ -231,6 +231,22 @@ export type RunDetailRecord = {
   approvals: Approval[];
 };
 
+export type LiveRunEventKind = "run_status" | "phase" | "model_start" | "reasoning" | "model_output" | "model_complete" | "tool_call" | "tool_result" | "validation" | "critic" | "audit" | "error";
+
+export type LiveRunEvent = {
+  id: string;
+  sequence: number;
+  runId: string;
+  at: string;
+  kind: LiveRunEventKind;
+  title: string;
+  content?: string;
+  role?: "planner" | "executor" | "critic";
+  phase?: RunPhase;
+  subtask?: string;
+  status?: "active" | "ok" | "error" | "waiting";
+};
+
 export type BuildHealth = {
   status: string;
   version: string;

@@ -69,6 +69,22 @@ suite("consequential production workflows", () => {
     expect(accessibility.violations.map((violation) => violation.id)).toEqual([]);
   }, 15_000);
 
+  it("opens Glassbox Live with historical evidence, accessible semantics, and focus return", async () => {
+    await open("/dashboard");
+    const opener = page.getByRole("button", { name: "Glassbox Live" });
+    await opener.focus();
+    await opener.click();
+    const dialog = page.getByRole("dialog", { name: "Glassbox Live" });
+    await expect.poll(() => dialog.isVisible()).toBe(true);
+    await expect.poll(() => dialog.getByText("operator · approval.rejected").isVisible()).toBe(true);
+    expect(await dialog.getByText("Literal, not inferred.").isVisible()).toBe(true);
+    const accessibility = await new AxeBuilder({ page }).include(".glassbox-modal").withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa", "wcag22a", "wcag22aa"]).analyze();
+    expect(accessibility.violations.map((violation) => violation.id)).toEqual([]);
+    await page.keyboard.press("Escape");
+    await expect.poll(() => dialog.count()).toBe(0);
+    expect(await opener.evaluate((element) => element === document.activeElement)).toBe(true);
+  }, 15_000);
+
   it("reflows the execution inspector at 320 CSS pixels", async () => {
     const narrowContext = await harness.newContext({ viewport: { width: 320, height: 800 }, reducedMotion: "reduce" });
     const narrowPage = await narrowContext.newPage();

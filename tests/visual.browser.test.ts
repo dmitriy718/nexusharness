@@ -22,6 +22,7 @@ const viewports = [
 const scenes = [
   { id: "onboarding", route: "/onboarding" },
   { id: "dashboard", route: "/dashboard" },
+  { id: "glassbox", route: "/dashboard", glassbox: true },
   { id: "run-focus", route: "/runs/run-a11y", mode: "focus" },
   { id: "run-studio", route: "/runs/run-a11y", mode: "studio" },
   { id: "run-orchestrate", route: "/runs/run-a11y", mode: "orchestrate" },
@@ -56,6 +57,11 @@ suite("Midnight Prism visual regression", () => {
         if (scene.mode) {
           await page.getByRole("button", { name: scene.mode, exact: true }).click();
           await page.locator(`.${scene.mode === "focus" ? "mode-focus" : `${scene.mode}-mode`}`).waitFor();
+        }
+        if (scene.glassbox) {
+          const trigger = viewport.width <= 470 ? page.locator(".mobile-bar").getByRole("button", { name: "Open Glassbox Live" }) : page.locator(".glassbox-button");
+          await trigger.click();
+          await page.getByRole("dialog", { name: "Glassbox Live" }).waitFor();
         }
         await page.evaluate(() => document.fonts.ready);
         await page.addStyleTag({ content: "*,*::before,*::after{animation:none!important;transition:none!important;caret-color:transparent!important}" });

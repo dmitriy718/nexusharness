@@ -19,6 +19,7 @@ import { countPromptTokens, memoryContentHash, sameIndexedText, workspaceNamespa
 import { resolveMemoryConfiguration } from "./memory/config.js";
 import { validateProviderConfiguration } from "./memory/providers.js";
 import { installationPaths, type ServiceState, userPaths } from "./paths.js";
+import { liveRunEventSnapshot, subscribeToLiveRunEvents, type LiveRunEvent } from "./liveRunEvents.js";
 
 const port = Number(process.env.NEXUSHARNESS_PORT ?? 8787);
 if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error("NEXUSHARNESS_PORT must be an integer from 1 to 65535.");
@@ -94,6 +95,55 @@ app.get("/api/runs", asyncRoute(async (req, res) => {
   res.json(runHistoryPage(store.runs, parseRunHistoryQuery(req.query)));
 }));
 
+app.get("/api/runs/:id/events", asyncRoute(async (req, res) => {
+  const runId = String(req.params.id);
+  const store = await loadStore();
+  const run = store.runs.find((item) => item.id === runId);
+  if (!run) return res.status(404).json({ error: "Run not found." });
+
+  res.status(200);
+  res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+  res.setHeader("Cache-Control", "no-store, no-transform");
+  res.setHeader("Connection", "keep-alive");
+  res.setHeader("X-Accel-Buffering", "no");
+  res.flushHeaders();
+  res.write("retry: 2000\n\n");
+
+  const seenAuditIds = new Set<string>();
+  const relatedAudit = [...(run.log ?? []), ...store.audit.filter((event) => {
+    const details = event.details && typeof event.details === "object" ? event.details as Record<string, unknown> : {};
+    return details.runId === runId || details.taskId === runId || event.message.includes(runId);
+  })].filter((event) => {
+    if (seenAuditIds.has(event.id)) return false;
+    seenAuditIds.add(event.id);
+    return true;
+  }).sort((left, right) => Date.parse(left.at) - Date.parse(right.at));
+
+  for (const event of relatedAudit) {
+    const details = event.details === undefined ? undefined : JSON.stringify(event.details, null, 2).slice(0, 20_000);
+    writeLiveEvent(res, {
+      id: `audit-${event.id}`,
+      sequence: 0,
+      runId,
+      at: event.at,
+      kind: "audit",
+      title: `${event.actor} · ${event.action}`,
+      content: details || event.message,
+      role: event.actor === "planner" || event.actor === "executor" || event.actor === "critic" ? event.actor : undefined,
+      status: event.status === "error" || event.status === "rejected" ? "error" : event.status === "pending" ? "waiting" : "ok"
+    });
+  }
+  for (const event of liveRunEventSnapshot(runId)) writeLiveEvent(res, event);
+
+  const unsubscribe = subscribeToLiveRunEvents(runId, (event) => writeLiveEvent(res, event));
+  const heartbeat = setInterval(() => res.write(`: heartbeat ${Date.now()}\n\n`), 15_000);
+  heartbeat.unref();
+  req.once("close", () => {
+    clearInterval(heartbeat);
+    unsubscribe();
+  });
+}));
+
 app.get("/api/runs/:id", asyncRoute(async (req, res) => {
   res.setHeader("Cache-Control", "no-store");
   const store = await loadStore();
@@ -106,6 +156,11 @@ app.get("/api/runs/:id", asyncRoute(async (req, res) => {
   const approvals = store.approvals.filter((approval) => approval.runId === run.id);
   res.json({ run, audit, approvals });
 }));
+
+function writeLiveEvent(response: express.Response, event: LiveRunEvent): void {
+  if (response.writableEnded || response.destroyed) return;
+  response.write(`id: ${event.id.replace(/[\r\n]/g, "")}\ndata: ${JSON.stringify(event)}\n\n`);
+}
 
 app.put("/api/settings", asyncRoute(async (req, res) => {
   const parsed = settingsSchema.parse(req.body);

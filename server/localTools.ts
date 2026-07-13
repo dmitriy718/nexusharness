@@ -148,7 +148,8 @@ export async function authorizeWorkspaceFileDelete(
 export async function executePreparedWorkspaceFileDelete(
   settings: Settings,
   plan: WorkspaceFileDeletePlan,
-  recordAudit: LocalAuditWriter = audit
+  recordAudit: LocalAuditWriter = audit,
+  context: ApprovalContext = {}
 ) {
   const current = await inspectWorkspaceFileDelete(settings, plan.relativePath);
   if (current.previousSha256 !== plan.previousSha256 || current.previousBytes !== plan.previousBytes) {
@@ -162,7 +163,7 @@ export async function executePreparedWorkspaceFileDelete(
     risk: "write",
     status: "ok",
     message: plan.relativePath,
-    details: { previousSha256: plan.previousSha256, previousBytes: plan.previousBytes, recursive: false }
+    details: { previousSha256: plan.previousSha256, previousBytes: plan.previousBytes, recursive: false, ...context }
   });
   return { path: plan.relativePath, previousSha256: plan.previousSha256, previousBytes: plan.previousBytes, recursive: false };
 }
@@ -173,14 +174,14 @@ function safePatch(relativePath: string, before: string | null, after: string): 
   return createTwoFilesPatch(`${relativePath}:before`, `${relativePath}:after`, beforeText, after, "", "", { context: 3 });
 }
 
-export async function listFiles(settings: Settings, relativePath = ".") {
+export async function listFiles(settings: Settings, relativePath = ".", context: ApprovalContext = {}) {
   const root = await resolveInsideRealWorkspace(settings.workspaceRoot, relativePath);
   const entries = (await readdir(root, { withFileTypes: true })).sort((a, b) => a.name.localeCompare(b.name)).slice(0, 2000);
-  await audit({ actor: "executor", action: "file.list", risk: "read", status: "ok", message: relativePath });
+  await audit({ actor: "executor", action: "file.list", risk: "read", status: "ok", message: relativePath, details: context });
   return entries.map((entry) => ({ name: entry.name, type: entry.isDirectory() ? "directory" : "file" }));
 }
 
-export async function readWorkspaceFile(settings: Settings, relativePath: string, options: { offset?: number; limit?: number } = {}) {
+export async function readWorkspaceFile(settings: Settings, relativePath: string, options: { offset?: number; limit?: number } = {}, context: ApprovalContext = {}) {
   const filePath = await resolveInsideRealWorkspace(settings.workspaceRoot, relativePath);
   const fileStat = await stat(filePath);
   if (!fileStat.isFile()) throw new Error(`Path is not a regular file: ${relativePath}`);
@@ -193,7 +194,7 @@ export async function readWorkspaceFile(settings: Settings, relativePath: string
   const offset = Number.isFinite(requestedOffset) ? Math.max(0, Math.trunc(requestedOffset)) : 0;
   const limit = Number.isFinite(requestedLimit) ? Math.min(100_000, Math.max(1, Math.trunc(requestedLimit))) : 40_000;
   const selected = content.slice(offset, offset + limit);
-  await audit({ actor: "executor", action: "file.read", risk: "read", status: "ok", message: relativePath, details: { offset, returnedCharacters: selected.length, totalCharacters: content.length, truncated: offset + selected.length < content.length } });
+  await audit({ actor: "executor", action: "file.read", risk: "read", status: "ok", message: relativePath, details: { offset, returnedCharacters: selected.length, totalCharacters: content.length, truncated: offset + selected.length < content.length, ...context } });
   return selected;
 }
 
@@ -235,7 +236,8 @@ export async function prepareWorkspaceFileWrite(
 export async function executePreparedWorkspaceFileWrite(
   settings: Settings,
   plan: WorkspaceFileWritePlan,
-  recordAudit: LocalAuditWriter = audit
+  recordAudit: LocalAuditWriter = audit,
+  context: ApprovalContext = {}
 ) {
   if (contentSha256(plan.content) !== plan.nextSha256 || Buffer.byteLength(plan.content) !== plan.nextBytes) {
     throw new Error(`Approved file-write content changed before execution: ${plan.relativePath}`);
@@ -259,7 +261,8 @@ export async function executePreparedWorkspaceFileWrite(
     nextSha256: plan.nextSha256,
     previousBytes: plan.previousBytes,
     nextBytes: plan.nextBytes,
-    diff: plan.diff
+    diff: plan.diff,
+    ...context
   };
   await recordAudit({ actor: "executor", action: "file.write", risk: "write", status: "ok", message: plan.relativePath, details });
   return { path: plan.relativePath, ...details };
@@ -267,7 +270,7 @@ export async function executePreparedWorkspaceFileWrite(
 
 export async function writeWorkspaceFile(settings: Settings, relativePath: string, content: string, context: ApprovalContext = {}) {
   const plan = await prepareWorkspaceFileWrite(settings, relativePath, content, context);
-  return executePreparedWorkspaceFileWrite(settings, plan);
+  return executePreparedWorkspaceFileWrite(settings, plan, audit, context);
 }
 
 export async function deleteWorkspacePath(settings: Settings, relativePath: string, context: ApprovalContext = {}) {
@@ -278,7 +281,7 @@ export async function deleteWorkspacePath(settings: Settings, relativePath: stri
   const targetStat = await lstat(filePath);
   await requireApproval(settings, "file.delete", "write", { relativePath, targetType: targetStat.isDirectory() ? "directory" : "file", recursive: targetStat.isDirectory() }, context);
   await rm(filePath, { recursive: true, force: false });
-  await audit({ actor: "executor", action: "file.delete", risk: "write", status: "ok", message: relativePath });
+  await audit({ actor: "executor", action: "file.delete", risk: "write", status: "ok", message: relativePath, details: context });
   return { path: relativePath };
 }
 
@@ -318,7 +321,7 @@ export async function runShell(
     risk: "execute",
     status: result.code === 0 ? "ok" : "error",
     message: command,
-    details: result
+    details: { ...result, ...context }
   });
   if (result.code !== 0) {
     throw new Error(`Command failed with exit code ${result.code}: ${command}\n${result.stderr || result.stdout}`);
